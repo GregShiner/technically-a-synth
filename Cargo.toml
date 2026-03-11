@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-synthesis = { path = "../synthesis" }
+dsp = { path = "../dsp" }
 dasp_signal = { version = "0.11.0", features = ["all"] }
 cpal = "0.17.3"
 ringbuf = "0.4.8"

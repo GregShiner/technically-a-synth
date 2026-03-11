@@ -1,12 +1,12 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dasp_signal::Signal;
+use dsp::{saw_oscillator, sine_oscillator, square_oscillator};
 use eframe::egui;
 use ringbuf::{
-    HeapRb,
     traits::{Consumer, Observer, Producer, Split},
+    HeapRb,
 };
 use std::sync::{Arc, Mutex};
-use synthesis::{saw_oscillator, sine_oscillator, square_oscillator};
 
 const SAMPLE_RATE_I: u32 = 44100;
 const SAMPLE_RATE: f64 = SAMPLE_RATE_I as f64;
