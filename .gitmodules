@@ -1,6 +1,6 @@
 [submodule "test_interface"]
 	path = test_interface
-	url = https://github.com/GregShiner/unnamed-synth-test-interface
+	url = https://gitea.gregshiner.com/GregShiner/unnamed-synth-test-interface
 [submodule "dsp"]
 	path = dsp
-	url = https://github.com/GregShiner/unnamed-synth-dsp
+	url = https://gitea.gregshiner.com/GregShiner/unnamed-synth-dsp
