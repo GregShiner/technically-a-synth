@@ -44,6 +44,14 @@ impl AnyOscillator {
             AnyOscillator::Saw(o) => o.fft_1024(),
         }
     }
+
+    pub fn real_fft_1024(&mut self) -> [f32; 512] {
+        match self {
+            AnyOscillator::Sine(o) => o.real_fft_1024(),
+            AnyOscillator::Square(o) => o.real_fft_1024(),
+            AnyOscillator::Saw(o) => o.real_fft_1024(),
+        }
+    }
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -111,17 +119,13 @@ impl eframe::App for OscilloscopeApp {
             draw_waveform(&painter, response.rect, &samples);
 
             // --- FFT ---
-            // ui.label("Spectrum");
-            // let (response, painter) = ui.allocate_painter(
-            //     egui::vec2(ui.available_width(), 200.0),
-            //     egui::Sense::hover(),
-            // );
-            let spectrum = self.osc.fft_1024();
-            // let magnitudes: Vec<f32> = spectrum
-            //     .iter()
-            //     .map(|c| (c.re * c.re + c.im * c.im).sqrt())
-            //     .collect();
-            // draw_spectrum(&painter, response.rect, &magnitudes);
+            ui.label("Spectrum");
+            let (response, painter) = ui.allocate_painter(
+                egui::vec2(ui.available_width(), 200.0),
+                egui::Sense::hover(),
+            );
+            let magnitudes = self.osc.real_fft_1024();
+            draw_spectrum(&painter, response.rect, &magnitudes);
         });
 
         ctx.request_repaint();
