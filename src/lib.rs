@@ -34,6 +34,11 @@ impl<S: Signal<Frame = f64>> Oscillator<S> {
         self.fft_buffer = core::array::from_fn(|_| self.fft_send.next() as f32);
         rfft_1024(&mut self.fft_buffer)
     }
+
+    pub fn real_fft_1024(&mut self) -> [f32; 512] {
+        let complex_result = self.fft_1024();
+        complex_result.map(|c| (c.re * c.re + c.im * c.im).sqrt())
+    }
 }
 
 impl Oscillator<Square<ConstHz>> {
