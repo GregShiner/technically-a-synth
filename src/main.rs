@@ -1,8 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use dasp_signal::{ConstHz, Saw, Signal, Sine, Square};
+use dasp_signal::{ConstHz, Saw, Sine, Square};
 use dsp::Oscillator;
 use eframe::egui;
-use microfft::Complex32;
 use ringbuf::{
     HeapRb,
     traits::{Consumer, Observer, Producer, Split},
@@ -31,17 +30,9 @@ pub enum AnyOscillator {
 impl AnyOscillator {
     pub fn next_sample(&mut self) -> f32 {
         match self {
-            AnyOscillator::Sine(o) => o.bus.send().next() as f32,
-            AnyOscillator::Square(o) => o.bus.send().next() as f32,
-            AnyOscillator::Saw(o) => o.bus.send().next() as f32,
-        }
-    }
-
-    pub fn fft_1024(&mut self) -> &mut [Complex32; 512] {
-        match self {
-            AnyOscillator::Sine(o) => o.fft_1024(),
-            AnyOscillator::Square(o) => o.fft_1024(),
-            AnyOscillator::Saw(o) => o.fft_1024(),
+            AnyOscillator::Sine(o) => o.tick(),
+            AnyOscillator::Square(o) => o.tick(),
+            AnyOscillator::Saw(o) => o.tick(),
         }
     }
 
@@ -105,7 +96,7 @@ impl eframe::App for OscilloscopeApp {
                     let s = self.osc.next_sample();
                     self.producer.try_push(s).ok();
                     buf.rotate_left(1);
-                    *buf.last_mut().unwrap() = s;
+                    *buf.last_mut().unwrap() = s as f32;
                 }
             }
 
@@ -220,8 +211,8 @@ fn main() {
             Ok(Box::new(OscilloscopeApp {
                 samples,
                 frequency: FREQUENCY,
-                osc: AnyOscillator::Saw(Oscillator::new_saw(FREQUENCY, SAMPLE_RATE)),
-                osc_type: OscillatorType::Saw,
+                osc: AnyOscillator::Sine(Oscillator::new_sine(FREQUENCY, SAMPLE_RATE)),
+                osc_type: OscillatorType::Sine,
                 producer,
             }))
         }),
