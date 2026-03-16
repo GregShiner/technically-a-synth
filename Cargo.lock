@@ -959,6 +959,7 @@ name = "dsp"
 version = "0.1.0"
 dependencies = [
  "dasp",
+ "libm",
  "microfft",
 ]
 
