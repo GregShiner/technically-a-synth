@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dasp = { version = "0.11.0", default-features = false, features = ["signal", "signal-bus"] }
+dasp = { version = "0.11.0", default-features = false, features = ["signal", "window", "signal-bus"] }
 libm = "0.2.16"
 microfft = "0.6.0"
