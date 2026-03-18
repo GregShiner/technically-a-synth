@@ -136,15 +136,15 @@ impl Oscillator<Saw<ConstHz>> {
     }
 }
 
-pub fn square_oscillator(sample_rate: f64, freq: f64) -> Square<ConstHz> {
+pub fn square_oscillator(freq: f64, sample_rate: f64) -> Square<ConstHz> {
     signal::rate(sample_rate).const_hz(freq).square()
 }
 
-pub fn sine_oscillator(sample_rate: f64, freq: f64) -> Sine<ConstHz> {
+pub fn sine_oscillator(freq: f64, sample_rate: f64) -> Sine<ConstHz> {
     signal::rate(sample_rate).const_hz(freq).sine()
 }
 
-pub fn saw_oscillator(sample_rate: f64, freq: f64) -> Saw<ConstHz> {
+pub fn saw_oscillator(freq: f64, sample_rate: f64) -> Saw<ConstHz> {
     signal::rate(sample_rate).const_hz(freq).saw()
 }
 
