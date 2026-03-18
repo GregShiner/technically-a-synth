@@ -1,6 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dasp_signal::{ConstHz, Saw, Signal, Sine, Square};
-use dsp::{FFTOscillator, Oscillator};
+use dsp::{FFTAnalyzer, saw_oscillator, sine_oscillator, square_oscillator};
 use eframe::egui;
 use ringbuf::{
     HeapRb,
@@ -22,9 +22,9 @@ struct OscilloscopeApp {
 }
 
 pub enum AnyOscillator {
-    Sine(FFTOscillator<Sine<ConstHz>>),
-    Square(FFTOscillator<Square<ConstHz>>),
-    Saw(FFTOscillator<Saw<ConstHz>>),
+    Sine(FFTAnalyzer<Sine<ConstHz>>),
+    Square(FFTAnalyzer<Square<ConstHz>>),
+    Saw(FFTAnalyzer<Saw<ConstHz>>),
 }
 
 impl AnyOscillator {
@@ -60,13 +60,13 @@ impl OscillatorType {
     fn build(&self, sample_rate: f64, freq: f64) -> AnyOscillator {
         match self {
             OscillatorType::Sine => {
-                AnyOscillator::Sine(FFTOscillator::new(Oscillator::new_sine(freq, sample_rate)))
+                AnyOscillator::Sine(FFTAnalyzer::new(sine_oscillator(freq, sample_rate)))
             }
-            OscillatorType::Square => AnyOscillator::Square(FFTOscillator::new(
-                Oscillator::new_square(freq, sample_rate),
-            )),
+            OscillatorType::Square => {
+                AnyOscillator::Square(FFTAnalyzer::new(square_oscillator(freq, sample_rate)))
+            }
             OscillatorType::Saw => {
-                AnyOscillator::Saw(FFTOscillator::new(Oscillator::new_saw(freq, sample_rate)))
+                AnyOscillator::Saw(FFTAnalyzer::new(saw_oscillator(freq, sample_rate)))
             }
         }
     }
@@ -219,10 +219,7 @@ fn main() {
             Ok(Box::new(OscilloscopeApp {
                 samples,
                 frequency: FREQUENCY,
-                osc: AnyOscillator::Sine(FFTOscillator::new(Oscillator::new_sine(
-                    FREQUENCY,
-                    SAMPLE_RATE,
-                ))),
+                osc: AnyOscillator::Sine(FFTAnalyzer::new(sine_oscillator(FREQUENCY, SAMPLE_RATE))),
                 osc_type: OscillatorType::Sine,
                 producer,
             }))
