@@ -1,5 +1,6 @@
 #![no_std]
 
+mod biquad;
 use dasp::{
     Signal,
     signal::{
@@ -26,6 +27,14 @@ pub struct FFTOscillator<S: Signal<Frame = f64>> {
     pub fft_cursor: usize,
 }
 
+impl<S: Signal<Frame = f64>> Signal for Oscillator<S> {
+    type Frame = f64;
+
+    fn next(&mut self) -> Self::Frame {
+        self.main_send.next()
+    }
+}
+
 impl<S: Signal<Frame = f64>> Oscillator<S> {
     pub fn new(freq: Option<f64>, sample_rate: Option<f64>, signal: S) -> Self {
         let bus = signal.bus();
@@ -36,10 +45,6 @@ impl<S: Signal<Frame = f64>> Oscillator<S> {
             bus,
             main_send,
         }
-    }
-
-    pub fn tick(&mut self) -> f32 {
-        self.main_send.next() as f32
     }
 }
 
@@ -79,16 +84,18 @@ impl<S: Signal<Frame = f64>> FFTOscillator<S> {
         });
         *rfft_1024(&mut ordered)
     }
+}
 
-    pub fn tick(&mut self) -> f32 {
+impl<S: Signal<Frame = f64>> Signal for FFTOscillator<S> {
+    type Frame = f64;
+    fn next(&mut self) -> f64 {
         let fft_sample = self.fft_send.next() as f32;
 
         self.fft_buffer[self.fft_cursor] = fft_sample;
         self.fft_cursor = (self.fft_cursor + 1) % FFT_BUFFER_SIZE;
-        self.oscillator.tick()
+        self.oscillator.next()
     }
 }
-
 pub fn complex_magnitudes<const N: usize>(complex: [Complex32; N]) -> [f32; N] {
     complex.map(|c| sqrtf(c.re * c.re + c.im * c.im))
 }
