@@ -1,5 +1,5 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use dasp_signal::{ConstHz, Saw, Sine, Square};
+use dasp_signal::{ConstHz, Saw, Signal, Sine, Square};
 use dsp::{FFTOscillator, Oscillator};
 use eframe::egui;
 use ringbuf::{
@@ -28,19 +28,23 @@ pub enum AnyOscillator {
 }
 
 impl AnyOscillator {
-    pub fn next_sample(&mut self) -> f32 {
-        match self {
-            AnyOscillator::Sine(o) => o.tick(),
-            AnyOscillator::Square(o) => o.tick(),
-            AnyOscillator::Saw(o) => o.tick(),
-        }
-    }
-
     pub fn real_fft_1024(&mut self) -> [f32; 512] {
         match self {
             AnyOscillator::Sine(o) => o.fft_1024_magnitudes(),
             AnyOscillator::Square(o) => o.fft_1024_magnitudes(),
             AnyOscillator::Saw(o) => o.fft_1024_magnitudes(),
+        }
+    }
+}
+
+impl Signal for AnyOscillator {
+    type Frame = f32;
+
+    fn next(&mut self) -> f32 {
+        match self {
+            AnyOscillator::Sine(o) => o.next() as f32,
+            AnyOscillator::Square(o) => o.next() as f32,
+            AnyOscillator::Saw(o) => o.next() as f32,
         }
     }
 }
@@ -97,7 +101,7 @@ impl eframe::App for OscilloscopeApp {
             {
                 let mut buf = self.samples.lock().unwrap();
                 while self.producer.vacant_len() > 0 {
-                    let s = self.osc.next_sample();
+                    let s = self.osc.next();
                     self.producer.try_push(s).ok();
                     buf.rotate_left(1);
                     *buf.last_mut().unwrap() = s;
