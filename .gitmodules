@@ -1,6 +1,0 @@
-[submodule "test_interface"]
-	path = test_interface
-	url = https://gitea.gregshiner.com/GregShiner/technically-a-synth-test-interface
-[submodule "dsp"]
-	path = dsp
-	url = https://gitea.gregshiner.com/GregShiner/technically-a-synth-dsp
