@@ -803,6 +803,7 @@ dependencies = [
  "dasp_frame",
  "dasp_sample",
  "dasp_signal",
+ "dasp_window",
 ]
 
 [[package]]
