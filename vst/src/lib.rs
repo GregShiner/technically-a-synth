@@ -1,5 +1,8 @@
+use dasp_signal::Signal;
+use dsp::biquad::BiquadFilter;
+use dsp::{saw_oscillator, sine_oscillator, square_oscillator};
 use nih_plug::prelude::*;
-use std::f32::consts;
+use std::f32::consts::FRAC_1_SQRT_2;
 use std::sync::Arc;
 
 /// A test tone generator that can either generate a sine wave based on the plugin's parameters or
@@ -7,32 +10,27 @@ use std::sync::Arc;
 pub struct TASVst {
     params: Arc<TASParams>,
     sample_rate: f32,
-
-    /// The current phase of the sine wave, always kept between in `[0, 1]`.
-    phase: f32,
-
-    /// The MIDI note ID of the active note, if triggered by MIDI.
     midi_note_id: u8,
-    /// The frequency if the active note, if triggered by MIDI.
-    midi_note_freq: f32,
-    /// A simple attack and release envelope to avoid clicks. Controlled through velocity and
-    /// aftertouch.
-    ///
-    /// Smoothing is built into the parameters, but you can also use them manually if you need to
-    /// smooth soemthing that isn't a parameter.
     midi_note_gain: Smoother<f32>,
+    oscillator: Option<Box<dyn Signal<Frame = f64> + Send>>,
+    filter: BiquadFilter, // TODO: Make generic filter trait
+}
+
+#[derive(Enum, PartialEq)]
+enum OscType {
+    Sine,
+    Saw,
+    Square,
 }
 
 #[derive(Params)]
 struct TASParams {
-    #[id = "gain"]
-    pub gain: FloatParam,
-
-    #[id = "freq"]
-    pub frequency: FloatParam,
-
-    #[id = "usemid"]
-    pub use_midi: BoolParam,
+    #[id = "osc_type"]
+    osc_type: EnumParam<OscType>,
+    #[id = "cutoff"]
+    cutoff: FloatParam,
+    #[id = "q"]
+    q: FloatParam,
 }
 
 impl Default for TASVst {
@@ -40,12 +38,10 @@ impl Default for TASVst {
         Self {
             params: Arc::new(TASParams::default()),
             sample_rate: 1.0,
-
-            phase: 0.0,
-
             midi_note_id: 0,
-            midi_note_freq: 1.0,
             midi_note_gain: Smoother::new(SmoothingStyle::Linear(5.0)),
+            oscillator: None,
+            filter: BiquadFilter::default(),
         }
     }
 }
@@ -53,47 +49,32 @@ impl Default for TASVst {
 impl Default for TASParams {
     fn default() -> Self {
         Self {
-            gain: FloatParam::new(
-                "Gain",
-                -20.0,
+            osc_type: EnumParam::new("Source Oscillator Type", OscType::Sine),
+            cutoff: FloatParam::new(
+                "Cutoff",
+                10000.0,
                 FloatRange::Linear {
-                    min: -30.0,
-                    max: 0.0,
+                    min: 10.0,
+                    max: 24000.0,
                 },
             )
-            .with_smoother(SmoothingStyle::Linear(3.0))
-            .with_step_size(0.01)
-            .with_unit(" dB"),
-            frequency: FloatParam::new(
-                "Frequency",
-                420.0,
-                FloatRange::Skewed {
-                    min: 1.0,
-                    max: 20_000.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_smoother(SmoothingStyle::Logarithmic(3.0))
+            .with_step_size(10.0)
             // We purposely don't specify a step size here, but the parameter should still be
             // displayed as if it were rounded. This formatter also includes the unit.
             .with_value_to_string(formatters::v2s_f32_hz_then_khz(0))
             .with_string_to_value(formatters::s2v_f32_hz_then_khz()),
-            use_midi: BoolParam::new("Use MIDI", true),
+            q: FloatParam::new(
+                "Quality",
+                FRAC_1_SQRT_2,
+                FloatRange::Linear {
+                    min: 0.5,
+                    max: 10.0,
+                },
+            )
+            .with_smoother(SmoothingStyle::Logarithmic(3.0))
+            .with_step_size(0.01),
         }
-    }
-}
-
-impl TASVst {
-    fn calculate_sine(&mut self, frequency: f32) -> f32 {
-        let phase_delta = frequency / self.sample_rate;
-        let sine = (self.phase * consts::TAU).sin();
-
-        self.phase += phase_delta;
-        if self.phase >= 1.0 {
-            self.phase -= 1.0;
-        }
-
-        sine
     }
 }
 
@@ -141,10 +122,9 @@ impl Plugin for TASVst {
     }
 
     fn reset(&mut self) {
-        self.phase = 0.0;
         self.midi_note_id = 0;
-        self.midi_note_freq = 1.0;
         self.midi_note_gain.reset(0.0);
+        self.oscillator = None;
     }
 
     fn process(
@@ -155,46 +135,49 @@ impl Plugin for TASVst {
     ) -> ProcessStatus {
         let mut next_event = context.next_event();
         for (sample_id, channel_samples) in buffer.iter_samples().enumerate() {
-            // Smoothing is optionally built into the parameters themselves
-            let gain = self.params.gain.smoothed.next();
+            let cutoff = self.params.cutoff.smoothed.next() as f64;
+            let sample_rate = self.sample_rate as f64;
+            let q = self.params.q.smoothed.next() as f64;
+            self.filter.update_low_pass(cutoff, sample_rate, q);
 
-            // This plugin can be either triggered by MIDI or controleld by a parameter
-            let sine = if self.params.use_midi.value() {
-                // Act on the next MIDI event
-                while let Some(event) = next_event {
-                    if event.timing() > sample_id as u32 {
-                        break;
-                    }
-
-                    match event {
-                        NoteEvent::NoteOn { note, velocity, .. } => {
-                            self.midi_note_id = note;
-                            self.midi_note_freq = util::midi_note_to_freq(note);
-                            self.midi_note_gain.set_target(self.sample_rate, velocity);
-                        }
-                        NoteEvent::NoteOff { note, .. } if note == self.midi_note_id => {
-                            self.midi_note_gain.set_target(self.sample_rate, 0.0);
-                        }
-                        NoteEvent::PolyPressure { note, pressure, .. }
-                            if note == self.midi_note_id =>
-                        {
-                            self.midi_note_gain.set_target(self.sample_rate, pressure);
-                        }
-                        _ => (),
-                    }
-
-                    next_event = context.next_event();
+            // Act on the next MIDI event
+            while let Some(event) = next_event {
+                if event.timing() > sample_id as u32 {
+                    break;
                 }
 
-                // This gain envelope prevents clicks with new notes and with released notes
-                self.calculate_sine(self.midi_note_freq) * self.midi_note_gain.next()
+                match event {
+                    NoteEvent::NoteOn { note, velocity, .. } => {
+                        self.midi_note_id = note;
+                        let freq = util::midi_note_to_freq(note) as f64;
+                        self.midi_note_gain.set_target(self.sample_rate, velocity);
+                        self.oscillator = Some(match self.params.osc_type.value() {
+                            OscType::Sine => Box::new(sine_oscillator(freq, sample_rate)),
+                            OscType::Saw => Box::new(saw_oscillator(freq, sample_rate)),
+                            OscType::Square => Box::new(square_oscillator(freq, sample_rate)),
+                        });
+                    }
+                    NoteEvent::NoteOff { note, .. } if note == self.midi_note_id => {
+                        self.midi_note_gain.set_target(self.sample_rate, 0.0);
+                    }
+                    // NoteEvent::PolyPressure { note, pressure, .. } if note == self.midi_note_id => {
+                    //     self.midi_note_gain.set_target(self.sample_rate, pressure);
+                    // }
+                    _ => (),
+                }
+
+                next_event = context.next_event();
+            }
+
+            // This gain envelope prevents clicks with new notes and with released notes
+            let next_sample = if let Some(osc) = &mut self.oscillator {
+                self.filter.process(osc.next()) as f32 * self.midi_note_gain.next()
             } else {
-                let frequency = self.params.frequency.smoothed.next();
-                self.calculate_sine(frequency)
+                0.0
             };
 
             for sample in channel_samples {
-                *sample = sine * util::db_to_gain_fast(gain);
+                *sample = next_sample;
             }
         }
 
