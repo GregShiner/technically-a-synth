@@ -1,9 +1,7 @@
 use core::f64::consts::PI;
 
-use dasp::Signal;
-
-pub struct BiquadFilter<S: Signal<Frame = f64>> {
-    input: S,
+#[derive(Default)]
+pub struct BiquadFilter {
     a1: f64,
     a2: f64,
     b0: f64,
@@ -15,23 +13,19 @@ pub struct BiquadFilter<S: Signal<Frame = f64>> {
     y2: f64,
 }
 
-impl<S: Signal<Frame = f64>> BiquadFilter<S> {
-    pub fn new(input: S, a1: f64, a2: f64, b0: f64, b1: f64, b2: f64) -> Self {
+impl BiquadFilter {
+    pub fn new(a1: f64, a2: f64, b0: f64, b1: f64, b2: f64) -> Self {
         Self {
-            input,
             a1,
             a2,
             b0,
             b1,
             b2,
-            x1: 0.0,
-            x2: 0.0,
-            y1: 0.0,
-            y2: 0.0,
+            ..Self::default()
         }
     }
 
-    pub fn low_pass(input: S, cutoff: f64, sample_rate: f64, q: f64) -> Self {
+    pub fn low_pass(cutoff: f64, sample_rate: f64, q: f64) -> Self {
         // https://en.wikipedia.org/wiki/Digital_biquad_filter#Bilinear_transform_examples
         let w0 = 2.0 * PI * cutoff / sample_rate;
         let alpha = w0.sin() / (2.0 * q);
@@ -48,7 +42,6 @@ impl<S: Signal<Frame = f64>> BiquadFilter<S> {
         let a2 = (1.0 - alpha) / a0;
 
         Self {
-            input,
             a1,
             a2,
             b0,
@@ -60,14 +53,10 @@ impl<S: Signal<Frame = f64>> BiquadFilter<S> {
             y2: 0.0,
         }
     }
-}
 
-impl<S: Signal<Frame = f64>> Signal for BiquadFilter<S> {
-    type Frame = f64;
 
-    fn next(&mut self) -> Self::Frame {
+    pub fn process(&mut self, x: f64) -> f64 {
         // https://en.wikipedia.org/wiki/Digital_biquad_filter#Direct_form_1
-        let x = self.input.next();
         let y = (self.b0 * x) + (self.b1 * self.x1) + (self.b2 * self.x2)
             - (self.a1 * self.y1)
             - (self.a2 * self.y2);
