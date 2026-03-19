@@ -54,6 +54,22 @@ impl BiquadFilter {
         }
     }
 
+    pub fn update_low_pass(&mut self, cutoff: f64, sample_rate: f64, q: f64) {
+        // https://en.wikipedia.org/wiki/Digital_biquad_filter#Bilinear_transform_examples
+        let w0 = 2.0 * PI * cutoff / sample_rate;
+        let alpha = w0.sin() / (2.0 * q);
+        let cos_w0 = w0.cos();
+
+        // Calculate a0 first because everything is normalized by a0
+        let a0 = 1.0 + alpha;
+
+        self.a1 = (-2.0 * cos_w0) / a0;
+        self.a2 = (1.0 - alpha) / a0;
+
+        self.b0 = ((1.0 - cos_w0) / 2.0) / a0;
+        self.b1 = (1.0 - cos_w0) / a0;
+        self.b2 = ((1.0 - cos_w0) / 2.0) / a0;
+    }
 
     pub fn process(&mut self, x: f64) -> f64 {
         // https://en.wikipedia.org/wiki/Digital_biquad_filter#Direct_form_1
