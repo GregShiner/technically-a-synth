@@ -2,6 +2,5 @@
 members = [
     "dsp",
     "test_interface",
-    "vst",
 ]
 resolver = "2"
