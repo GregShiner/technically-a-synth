@@ -1,0 +1,14 @@
+[package]
+name = "vst"
+version = "0.1.0"
+edition = "2021"
+authors = ["Greg Shiner <greg@gregshiner.com>"]
+license = "GPL-3.0-or-later"
+homepage = "https://gitea.gregshiner.com/GregShiner/technically-a-synth"
+description = "A VST/CLAP plugin implementation for testing my dsp library"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }

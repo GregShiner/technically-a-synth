@@ -2,5 +2,16 @@
 members = [
     "dsp",
     "test_interface",
+    "vst",
+    "vst/xtask",
 ]
 resolver = "2"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = "none"
