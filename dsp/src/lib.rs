@@ -1,6 +1,8 @@
 #![no_std]
 
 pub mod biquad;
+pub mod envelope;
+
 use dasp::{
     Signal,
     signal::{
