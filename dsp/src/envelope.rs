@@ -130,3 +130,9 @@ impl Signal for ADSR {
         sample
     }
 }
+
+impl Default for ADSR {
+    fn default() -> Self {
+        Self::new(0, 0, 1.0, 0, 44100.0, false)
+    }
+}

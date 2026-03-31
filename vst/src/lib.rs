@@ -1,5 +1,6 @@
 use dasp_signal::Signal;
 use dsp::biquad::BiquadFilter;
+use dsp::envelope::ADSR;
 use dsp::{saw_oscillator, sine_oscillator, square_oscillator};
 use nih_plug::prelude::*;
 use std::f32::consts::FRAC_1_SQRT_2;
@@ -14,6 +15,7 @@ pub struct TASVst {
     midi_note_gain: Smoother<f32>,
     oscillator: Option<Box<dyn Signal<Frame = f64> + Send>>,
     filter: BiquadFilter, // TODO: Make generic filter trait
+    envelope: ADSR,       // TODO: Make generic envelope trait
 }
 
 #[derive(Enum, PartialEq)]
@@ -31,6 +33,14 @@ struct TASParams {
     cutoff: FloatParam,
     #[id = "q"]
     q: FloatParam,
+    #[id = "attack"]
+    attack: FloatParam,
+    #[id = "decay"]
+    decay: FloatParam,
+    #[id = "sustain"]
+    sustain: FloatParam,
+    #[id = "release"]
+    release: FloatParam,
 }
 
 impl Default for TASVst {
@@ -42,6 +52,7 @@ impl Default for TASVst {
             midi_note_gain: Smoother::new(SmoothingStyle::Linear(5.0)),
             oscillator: None,
             filter: BiquadFilter::default(),
+            envelope: ADSR::default(),
         }
     }
 }
