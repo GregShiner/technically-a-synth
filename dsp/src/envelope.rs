@@ -1,20 +1,15 @@
 use dasp::Signal;
 
-enum ADSRState {
-    NotStarted, // Key not pressed
-    ADS,        // Key pressed
-    R,          // Key released
-}
 pub struct ADSR {
     attack: u32,       // Number of samples at sample_rate
     decay: u32,        // Number of samples at sample_rate
     sustain: f64,      // Amplitude 0 to 1
     release: u32,      // Number of samples at sample_rate
     sample_rate: f64,  // Samples / sec
-    sample_step: u32,  // Current step of envelope
+    sample_step: u32,  // Current step of envelope (gets reset when entering release phase)
     key_pressed: bool, // When true, goes through ADS phase. Once false, goes through R phase
-    started: bool,     // True once the key is pressed, never set back to false
-    ended: bool,       // True once the key is released after previously being pressed
+    active: bool,      // True once the key is pressed, never set back to false
+    released: bool,    // True once the key is released after previously being pressed
 }
 
 impl ADSR {
@@ -39,8 +34,8 @@ impl ADSR {
             // } else {
             //     ADSRState::NotStarted
             // },
-            started: key_pressed,
-            ended: false,
+            active: key_pressed,
+            released: false,
         }
     }
 
@@ -64,11 +59,50 @@ impl ADSR {
             key_pressed,
         )
     }
+
+    fn note_on(&mut self) {
+        self.sample_step = 0;
+        self.key_pressed = true;
+    }
+
+    fn note_off(&mut self) {
+        self.key_pressed = false;
+    }
+
+    /// Updates the ADSR parameters
+    /// May be unstable if changing parameters while a note is active
+    pub fn update_unchecked(&mut self, a: f64, d: f64, s: f64, r: f64) {
+        self.attack = (a * self.sample_rate) as u32;
+        self.decay = (d * self.sample_rate) as u32;
+        self.sustain = s;
+        self.release = (r * self.sample_rate) as u32;
+    }
+
+    /// Updates ADSR parameters but only if the ADSR is inactive
+    /// Returns true if parameters were updated, false if not
+    /// You probably want to continue doing this between samples until its true
+    pub fn update(&mut self, a: f64, d: f64, s: f64, r: f64) -> bool {
+        if self.active {
+            return false;
+        };
+        self.update_unchecked(a, d, s, r);
+        true
+    }
 }
 
 fn lerp(start: f64, end: f64, t: f64) -> f64 {
     // Some performance notes here: https://en.wikipedia.org/wiki/Linear_interpolation#Programming_language_support
     start + t * (end - start)
+}
+
+fn clamped_lerp(start: f64, end: f64, t: f64) -> f64 {
+    if t <= 0.0 {
+        start
+    } else if t >= 1.0 {
+        end
+    } else {
+        lerp(start, end, t)
+    }
 }
 
 // t = sample_step / attack,decay,release
@@ -85,8 +119,8 @@ impl Signal for ADSR {
             sample_rate: _,
             sample_step,
             key_pressed,
-            started,
-            ended,
+            active,
+            released,
         } = *self;
         // If key pressed (ADS phase)
         //      if sample <= attack:
@@ -98,35 +132,36 @@ impl Signal for ADSR {
         // Else (in R phase)
         //      ret lerp(sustain, 0, (sample but only in R phase) / decay)
 
-        // let prev_state = self.state;
-        // self.state = match key_pressed {
-        //     true => ADSRState::ADS;
-        //     false => if prev_state == ADSRState::ADS {
-        //         ADSRState::R
-        //     }
-        // }
-        // TODO: figure out if this logic works for multiple presses
+        // Key Pressed
         let sample = if key_pressed {
-            self.started = true;
-            self.ended = false;
+            self.active = true;
+            self.released = false;
+            // Attack Phase
             if sample_step <= attack {
-                lerp(0.0, 1.0, sample_step as f64 / attack as f64)
-            } else if sample_step <= decay {
-                lerp(1.0, sustain, (sample_step - attack) as f64 / decay as f64)
+                clamped_lerp(0.0, 1.0, sample_step as f64 / attack as f64)
+            // Decay Phase
+            } else if sample_step <= attack + decay {
+                clamped_lerp(1.0, sustain, (sample_step - attack) as f64 / decay as f64)
+            // Sustain Phase
             } else {
                 sustain
             }
-        } else if started {
-            self.ended = true;
-            if !ended {
+        // Key released but note already started; Release Phase
+        } else if active {
+            self.released = true;
+            // If it was not ended on the previous step, reset the counter
+            if !released {
                 self.sample_step = 0;
             }
-            lerp(sustain, 0.0, sample_step as f64 / release as f64)
+            if self.sample_step > release {
+                self.active = false;
+            }
+            clamped_lerp(sustain, 0.0, self.sample_step as f64 / release as f64)
         } else {
             0.0
         };
-
         self.sample_step += 1;
+
         sample
     }
 }

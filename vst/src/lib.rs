@@ -85,6 +85,35 @@ impl Default for TASParams {
             )
             .with_smoother(SmoothingStyle::Logarithmic(3.0))
             .with_step_size(0.01),
+            attack: FloatParam::new(
+                "Attack",
+                0.0,
+                FloatRange::Linear {
+                    min: 0.0,
+                    max: 10.0,
+                },
+            )
+            .with_step_size(0.01),
+            decay: FloatParam::new(
+                "Decay",
+                1.0,
+                FloatRange::Linear {
+                    min: 0.0,
+                    max: 10.0,
+                },
+            )
+            .with_step_size(0.01),
+            sustain: FloatParam::new("Sustain", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_step_size(0.001),
+            release: FloatParam::new(
+                "Release",
+                0.0,
+                FloatRange::Linear {
+                    min: 0.0,
+                    max: 10.0,
+                },
+            )
+            .with_step_size(0.01),
         }
     }
 }
