@@ -16,6 +16,7 @@ const BUFFER_SAMPLES: usize = 256;
 type SampleBuffer = [AudioSample; BUFFER_SAMPLES];
 const SAMPLE_RATE: f64 = 44100.0;
 const MIDDLE_C: f64 = 261.6256;
+
 const USB_EP_OUT_BUF_SIZE: usize = 256;
 
 #[derive(Clone, Copy)]
@@ -44,9 +45,6 @@ mod app {
     };
     use defmt::{debug, info};
     use embassy_stm32::{self as hal, rcc, usb};
-    use rtic_monotonics::Monotonic;
-
-    use crate::app::shared_resources::buffer_ready_that_needs_to_be_locked;
 
     use super::*;
 
