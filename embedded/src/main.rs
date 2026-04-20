@@ -212,7 +212,7 @@ mod app {
                     .lock(|buf| fill_buffer(buf, cx.local.square_osc));
                 cx.shared.ping_state.lock(|s| *s = BufferState::PendingRead);
             }
-            // TODO: Yield
+            core::future::ready(()).await;
 
             let write_pong = cx
                 .shared
@@ -225,7 +225,7 @@ mod app {
                     .lock(|buf| fill_buffer(buf, cx.local.square_osc));
                 cx.shared.pong_state.lock(|s| *s = BufferState::PendingRead);
             }
-            // TODO: Yield
+            core::future::ready(()).await;
         }
     }
 }
