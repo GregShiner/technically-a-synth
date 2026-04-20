@@ -47,7 +47,6 @@ mod app {
     use embassy_stm32::{self as hal, rcc, usb};
 
     use super::*;
-
     use dsp::square_oscillator;
 
     // Shared resources go here
@@ -65,10 +64,11 @@ mod app {
     #[local]
     struct Local {
         square_osc: Square<ConstHz>,
-        usb_ep_out_buf: [u8; USB_EP_OUT_BUF_SIZE],
     }
 
-    #[init]
+    #[init(local = [
+        ep_out_buffer: [u8; USB_EP_OUT_BUF_SIZE] = [0u8; USB_EP_OUT_BUF_SIZE],
+    ])]
     fn init(cx: init::Context) -> (Shared, Local) {
         info!("init");
 
@@ -108,7 +108,6 @@ mod app {
         let p = hal::init_primary(config, &SHARED_DATA);
         debug!("HAL Initialized");
 
-        let mut ep_out_buffer = [0u8; USB_EP_OUT_BUF_SIZE];
         let mut usb_peripheral_config = usb::Config::default();
         // This may at some point need vbus_detection set to true
         // https://docs.embassy.dev/embassy-stm32/0.6.0/stm32h755zi-cm7/usb/struct.Config.html#structfield.vbus_detection
@@ -118,7 +117,7 @@ mod app {
             Irqs,
             p.PA12,
             p.PA11,
-            &mut ep_out_buffer,
+            cx.local.ep_out_buffer,
             usb_peripheral_config,
         );
 
@@ -135,7 +134,6 @@ mod app {
             },
             Local {
                 square_osc: square_oscillator(SAMPLE_RATE / 2.0, SAMPLE_RATE),
-                usb_ep_out_buf: ep_out_buffer,
             },
         )
     }
