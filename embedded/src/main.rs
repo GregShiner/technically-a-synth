@@ -18,6 +18,10 @@ const SAMPLE_RATE: f64 = 44100.0;
 const MIDDLE_C: f64 = 261.6256;
 
 const USB_EP_OUT_BUF_SIZE: usize = 256;
+const USB_DESCRIPTOR_BUF_SIZE: usize = 256;
+const USB_CONTROL_BUF_SIZE: usize = 64;
+const USB_VID: u16 = 0xDEAD;
+const USB_PID: u16 = 0xBEEF;
 
 #[derive(Clone, Copy)]
 pub enum ActiveBuffer {
@@ -44,7 +48,16 @@ mod app {
         signal::{ConstHz, Square},
     };
     use defmt::{debug, info};
-    use embassy_stm32::{self as hal, rcc, usb};
+    use embassy_stm32::{
+        self as hal,
+        peripherals::USB_OTG_FS,
+        rcc,
+        usb::{self, Driver},
+    };
+    use embassy_usb::{
+        Builder, Config, UsbDevice,
+        class::cdc_acm::{CdcAcmClass, Sender, State},
+    };
 
     use super::*;
     use dsp::square_oscillator;
@@ -64,10 +77,19 @@ mod app {
     #[local]
     struct Local {
         square_osc: Square<ConstHz>,
+        usb_device: UsbDevice<'static, Driver<'static, USB_OTG_FS>>,
+        cdc_sender: Sender<'static, Driver<'static, USB_OTG_FS>>,
     }
 
     #[init(local = [
         ep_out_buffer: [u8; USB_EP_OUT_BUF_SIZE] = [0u8; USB_EP_OUT_BUF_SIZE],
+        usb_config_descriptor_buf: [u8; USB_DESCRIPTOR_BUF_SIZE] = [0u8; USB_DESCRIPTOR_BUF_SIZE],
+        usb_bos_descriptor_buf: [u8; USB_DESCRIPTOR_BUF_SIZE] = [0u8; USB_DESCRIPTOR_BUF_SIZE],
+        usb_msos_descriptor_buf: [u8; USB_DESCRIPTOR_BUF_SIZE] = [0u8; USB_DESCRIPTOR_BUF_SIZE],
+        usb_control_buf: [u8; USB_CONTROL_BUF_SIZE] = [0u8; USB_CONTROL_BUF_SIZE],
+        cdc_state: State<'static> = State::new() // Im not sure why rtic isnt automatically making
+                                                 // this 'static, but this seems to fix it. Without
+                                                 // the lifetime annotation it complains
     ])]
     fn init(cx: init::Context) -> (Shared, Local) {
         info!("init");
@@ -108,7 +130,7 @@ mod app {
         let p = hal::init_primary(config, &SHARED_DATA);
         debug!("HAL Initialized");
 
-        let mut usb_peripheral_config = usb::Config::default();
+        let usb_peripheral_config = usb::Config::default();
         // This may at some point need vbus_detection set to true
         // https://docs.embassy.dev/embassy-stm32/0.6.0/stm32h755zi-cm7/usb/struct.Config.html#structfield.vbus_detection
 
@@ -121,7 +143,27 @@ mod app {
             usb_peripheral_config,
         );
 
-        let driver = Mono::start(cp.SYST, 480_000_000); // 480 MHz System Clock
+        let mut usb_config = Config::new(USB_VID, USB_PID);
+        usb_config.manufacturer = Some("Greg Shiner");
+        usb_config.product = Some("TechnicallyASynth");
+        usb_config.max_power = 0;
+
+        let mut builder = Builder::new(
+            driver,
+            usb_config,
+            cx.local.usb_config_descriptor_buf,
+            cx.local.usb_bos_descriptor_buf,
+            cx.local.usb_msos_descriptor_buf,
+            cx.local.usb_control_buf,
+        );
+
+        // It may be cool to one day use uac1 instead of cdc to support USB audio
+        // As of 4/20/26 embassy-usb only supports host -> device uac
+        let cdc = CdcAcmClass::new(&mut builder, cx.local.cdc_state, 64);
+        let usb_device = builder.build();
+        let (cdc_sender, _cdc_receiver) = cdc.split();
+
+        let mono_driver = Mono::start(cp.SYST, 480_000_000); // 480 MHz System Clock
         debug!("Monotonic Started");
         fill_audio::spawn().unwrap();
 
@@ -134,6 +176,8 @@ mod app {
             },
             Local {
                 square_osc: square_oscillator(SAMPLE_RATE / 2.0, SAMPLE_RATE),
+                usb_device,
+                cdc_sender,
             },
         )
     }
