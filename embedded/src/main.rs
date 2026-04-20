@@ -181,6 +181,7 @@ mod app {
             if i % 100 == 0 {
                 debug!("{:?}", cx.shared.ping.lock(|b| *b));
             }
+            i += 1;
         }
     }
 }
