@@ -23,10 +23,10 @@ const USB_CONTROL_BUF_SIZE: usize = 64;
 const USB_VID: u16 = 0xDEAD;
 const USB_PID: u16 = 0xBEEF;
 
-#[derive(Clone, Copy)]
-pub enum ActiveBuffer {
-    Ping,
-    Pong,
+#[derive(PartialEq)]
+pub enum BufferState {
+    PendingRead,
+    PendingWrite,
 }
 
 bind_interrupts!(struct Irqs {
@@ -67,10 +67,8 @@ mod app {
     struct Shared {
         ping: SampleBuffer,
         pong: SampleBuffer,
-        /// Buffer being read from
-        active_buffer: ActiveBuffer,
-        /// Set by writter when the other buffer is ready
-        buffer_ready: bool,
+        ping_state: BufferState,
+        pong_state: BufferState,
     }
 
     // Local resources go here
@@ -171,8 +169,8 @@ mod app {
             Shared {
                 ping: [0; BUFFER_SAMPLES],
                 pong: [0; BUFFER_SAMPLES],
-                active_buffer: ActiveBuffer::Ping,
-                buffer_ready: false,
+                ping_state: BufferState::PendingWrite,
+                pong_state: BufferState::PendingWrite,
             },
             Local {
                 square_osc: square_oscillator(SAMPLE_RATE / 2.0, SAMPLE_RATE),
@@ -199,31 +197,35 @@ mod app {
         buf.iter_mut().for_each(|s| *s = f64_to_sample(osc.next()));
     }
 
-    #[task(local = [square_osc], shared = [ping, pong, active_buffer, buffer_ready], priority = 1)]
-    async fn fill_audio(mut cx: fill_audio::Context) {
-        info!("FILLIN UP");
-        let mut i = 0u32;
-
+    #[task(local = [square_osc], shared = [ping, pong, ping_state, pong_state], priority = 1)]
+    async fn fill_audio(mut cx: fill_audio::Context) -> ! {
+        info!("Started fill_audio");
         loop {
-            let active_buffer = cx.shared.active_buffer.lock(|a| *a);
-
-            match active_buffer {
-                ActiveBuffer::Ping => cx
-                    .shared
+            let write_ping = cx
+                .shared
+                .ping_state
+                .lock(|s| *s == BufferState::PendingWrite);
+            if write_ping {
+                debug!("Writting ping");
+                cx.shared
                     .ping
-                    .lock(|buf| fill_buffer(buf, cx.local.square_osc)),
-                ActiveBuffer::Pong => cx
-                    .shared
-                    .pong
-                    .lock(|buf| fill_buffer(buf, cx.local.square_osc)),
-            };
-
-            cx.shared.buffer_ready.lock(|r| *r = true);
-
-            if i % 100 == 0 {
-                debug!("{:?}", cx.shared.ping.lock(|b| *b));
+                    .lock(|buf| fill_buffer(buf, cx.local.square_osc));
+                cx.shared.ping_state.lock(|s| *s = BufferState::PendingRead);
             }
-            i += 1;
+            // TODO: Yield
+
+            let write_pong = cx
+                .shared
+                .pong_state
+                .lock(|s| *s == BufferState::PendingWrite);
+            if write_pong {
+                debug!("Writting pong");
+                cx.shared
+                    .pong
+                    .lock(|buf| fill_buffer(buf, cx.local.square_osc));
+                cx.shared.pong_state.lock(|s| *s = BufferState::PendingRead);
+            }
+            // TODO: Yield
         }
     }
 }
