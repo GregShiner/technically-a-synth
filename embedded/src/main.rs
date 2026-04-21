@@ -189,6 +189,66 @@ mod app {
         }
     }
 
+    #[task(local = [usb_device, cdc_sender], shared = [ping, pong, ping_state, pong_state], priority = 1)]
+    async fn send_audio(mut cx: send_audio::Context) {
+        info!("Sending data!");
+        loop {
+            let read_ping = cx
+                .shared
+                .ping_state
+                .lock(|s| *s == BufferState::PendingRead);
+            // NOTE: Re soundness: The buffer state can theoretically be changed between the above
+            // line and the following line. However, that will never happen as long as send_audio()
+            // is the only other task that may modify it, and its at the same priority as this task.
+            // In RTIC, only higher priority tasks can preempt.
+            if read_ping {
+                // TODO: Rewrite this as no copy
+                // This can be accomplished by just copying out the pointer to the array and using
+                // that. But, that can only be done soundly once it's confirmed that the writer will
+                // never write to a buffer while its reading.
+                let mut local_buf = [0i16; BUFFER_SAMPLES];
+                cx.shared.ping.lock(|buf| local_buf.copy_from_slice(buf));
+                let bytes: &[u8; BUFFER_SAMPLES * size_of::<AudioSample>()] =
+                    // SAFETY: The internal representation of the data doesn't really matter as long
+                    // as whatever is reading from USB interprets it correctly. The only thing that
+                    // would matter here is the endianess of the i16s. They should (probably) be
+                    // little-endian but this might be worth double checking at some point.
+                    // If the type of AudioSample changes from i16, this may need to be adjusted.
+                    unsafe { core::mem::transmute(&local_buf) };
+                for chunk in bytes.chunks(64) {
+                    // 64 is the max number of bytes for USB FS bulk
+                    cx.local.cdc_sender.write_packet(chunk).await.unwrap();
+                }
+                cx.shared
+                    .ping_state
+                    .lock(|s| *s = BufferState::PendingWrite);
+            }
+
+            let read_pong = cx
+                .shared
+                .pong_state
+                .lock(|s| *s == BufferState::PendingRead);
+            // NOTE: Re soundness: ditto
+            if read_pong {
+                // TODO: Ditto
+                let mut local_buf = [0i16; BUFFER_SAMPLES];
+                cx.shared.pong.lock(|buf| local_buf.copy_from_slice(buf));
+                let bytes: &[u8; BUFFER_SAMPLES * size_of::<AudioSample>()] =
+                    // SAFETY: Ditto
+                    unsafe { core::mem::transmute(&local_buf) };
+                for chunk in bytes.chunks(64) {
+                    cx.local.cdc_sender.write_packet(chunk).await.unwrap();
+                }
+                cx.shared
+                    .pong_state
+                    .lock(|s| *s = BufferState::PendingWrite);
+            }
+            // The other branches will await/yield when it calls write_packet(chunk)
+            // But that does not cover the case when neither buffer is ready to be read from.
+            core::future::ready(()).await;
+        }
+    }
+
     fn fill_buffer(buf: &mut SampleBuffer, osc: &mut Square<ConstHz>) {
         fn f64_to_sample(s: f64) -> AudioSample {
             (s * AudioSample::MAX as f64).clamp(AudioSample::MIN as f64, AudioSample::MAX as f64)
@@ -205,6 +265,7 @@ mod app {
                 .shared
                 .ping_state
                 .lock(|s| *s == BufferState::PendingWrite);
+            // NOTE: Re soundness: ditto
             if write_ping {
                 debug!("Writting ping");
                 cx.shared
@@ -218,6 +279,7 @@ mod app {
                 .shared
                 .pong_state
                 .lock(|s| *s == BufferState::PendingWrite);
+            // NOTE: Re soundness: ditto
             if write_pong {
                 debug!("Writting pong");
                 cx.shared
