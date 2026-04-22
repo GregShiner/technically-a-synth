@@ -58,6 +58,8 @@ mod app {
         Builder, Config, UsbDevice,
         class::cdc_acm::{CdcAcmClass, Sender, State},
     };
+    use fugit::ExtU32;
+    use rtic_monotonics::Monotonic;
 
     use super::*;
     use dsp::square_oscillator;
@@ -164,7 +166,8 @@ mod app {
         let mono_driver = Mono::start(cp.SYST, 480_000_000); // 480 MHz System Clock
         debug!("Monotonic Started");
         fill_audio::spawn().unwrap();
-
+        send_audio::spawn().unwrap();
+        usb_poll::spawn().unwrap();
         (
             Shared {
                 ping: [0; BUFFER_SAMPLES],
@@ -173,7 +176,7 @@ mod app {
                 pong_state: BufferState::PendingWrite,
             },
             Local {
-                square_osc: square_oscillator(SAMPLE_RATE / 2.0, SAMPLE_RATE),
+                square_osc: square_oscillator(MIDDLE_C, SAMPLE_RATE),
                 usb_device,
                 cdc_sender,
             },
@@ -189,10 +192,16 @@ mod app {
         }
     }
 
-    #[task(local = [usb_device, cdc_sender], shared = [ping, pong, ping_state, pong_state], priority = 1)]
+    #[task(local = [usb_device], priority = 3)]
+    async fn usb_poll(cx: usb_poll::Context) {
+        cx.local.usb_device.run().await;
+    }
+
+    #[task(local = [cdc_sender], shared = [ping, pong, ping_state, pong_state], priority = 1)]
     async fn send_audio(mut cx: send_audio::Context) {
         info!("Sending data!");
         loop {
+            debug!("Starting send audio loop");
             let read_ping = cx
                 .shared
                 .ping_state
@@ -202,6 +211,7 @@ mod app {
             // is the only other task that may modify it, and its at the same priority as this task.
             // In RTIC, only higher priority tasks can preempt.
             if read_ping {
+                debug!("Reading ping");
                 // TODO: Rewrite this as no copy
                 // This can be accomplished by just copying out the pointer to the array and using
                 // that. But, that can only be done soundly once it's confirmed that the writer will
@@ -217,7 +227,9 @@ mod app {
                     unsafe { core::mem::transmute(&local_buf) };
                 for chunk in bytes.chunks(64) {
                     // 64 is the max number of bytes for USB FS bulk
-                    cx.local.cdc_sender.write_packet(chunk).await.unwrap();
+                    if let Err(_) = cx.local.cdc_sender.write_packet(chunk).await {
+                        break;
+                    }
                 }
                 cx.shared
                     .ping_state
@@ -230,6 +242,7 @@ mod app {
                 .lock(|s| *s == BufferState::PendingRead);
             // NOTE: Re soundness: ditto
             if read_pong {
+                debug!("Reading pong");
                 // TODO: Ditto
                 let mut local_buf = [0i16; BUFFER_SAMPLES];
                 cx.shared.pong.lock(|buf| local_buf.copy_from_slice(buf));
@@ -237,7 +250,9 @@ mod app {
                     // SAFETY: Ditto
                     unsafe { core::mem::transmute(&local_buf) };
                 for chunk in bytes.chunks(64) {
-                    cx.local.cdc_sender.write_packet(chunk).await.unwrap();
+                    if let Err(_) = cx.local.cdc_sender.write_packet(chunk).await {
+                        break;
+                    }
                 }
                 cx.shared
                     .pong_state
@@ -245,7 +260,7 @@ mod app {
             }
             // The other branches will await/yield when it calls write_packet(chunk)
             // But that does not cover the case when neither buffer is ready to be read from.
-            core::future::ready(()).await;
+            Mono::delay(1000.micros()).await;
         }
     }
 
@@ -261,6 +276,7 @@ mod app {
     async fn fill_audio(mut cx: fill_audio::Context) -> ! {
         info!("Started fill_audio");
         loop {
+            debug!("Starting fill audio loop");
             let write_ping = cx
                 .shared
                 .ping_state
@@ -273,7 +289,7 @@ mod app {
                     .lock(|buf| fill_buffer(buf, cx.local.square_osc));
                 cx.shared.ping_state.lock(|s| *s = BufferState::PendingRead);
             }
-            core::future::ready(()).await;
+            Mono::delay(1000.micros()).await;
 
             let write_pong = cx
                 .shared
@@ -287,7 +303,7 @@ mod app {
                     .lock(|buf| fill_buffer(buf, cx.local.square_osc));
                 cx.shared.pong_state.lock(|s| *s = BufferState::PendingRead);
             }
-            core::future::ready(()).await;
+            Mono::delay(1000.micros()).await;
         }
     }
 }
