@@ -45,7 +45,7 @@ bind_interrupts!(struct Irqs {
 mod app {
     use dasp::{
         Signal,
-        signal::{ConstHz, Square},
+        signal::{ConstHz, Sine, Square},
     };
     use defmt::{debug, info};
     use embassy_stm32::{
@@ -62,7 +62,7 @@ mod app {
     use rtic_monotonics::Monotonic;
 
     use super::*;
-    use dsp::square_oscillator;
+    use dsp::{sine_oscillator, square_oscillator};
 
     // Shared resources go here
     #[shared]
@@ -76,7 +76,7 @@ mod app {
     // Local resources go here
     #[local]
     struct Local {
-        square_osc: Square<ConstHz>,
+        square_osc: Sine<ConstHz>,
         usb_device: UsbDevice<'static, Driver<'static, USB_OTG_FS>>,
         cdc_sender: Sender<'static, Driver<'static, USB_OTG_FS>>,
     }
@@ -176,7 +176,7 @@ mod app {
                 pong_state: BufferState::PendingWrite,
             },
             Local {
-                square_osc: square_oscillator(MIDDLE_C, SAMPLE_RATE),
+                square_osc: sine_oscillator(MIDDLE_C, SAMPLE_RATE),
                 usb_device,
                 cdc_sender,
             },
@@ -264,7 +264,7 @@ mod app {
         }
     }
 
-    fn fill_buffer(buf: &mut SampleBuffer, osc: &mut Square<ConstHz>) {
+    fn fill_buffer(buf: &mut SampleBuffer, osc: &mut Sine<ConstHz>) {
         fn f64_to_sample(s: f64) -> AudioSample {
             (s * AudioSample::MAX as f64).clamp(AudioSample::MIN as f64, AudioSample::MAX as f64)
                 as AudioSample
