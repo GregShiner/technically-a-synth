@@ -47,7 +47,7 @@ mod app {
         Signal,
         signal::{ConstHz, Sine, Square},
     };
-    use defmt::{debug, info};
+    use defmt::{debug, info, warn};
     use embassy_stm32::{
         self as hal,
         peripherals::USB_OTG_FS,
@@ -260,6 +260,9 @@ mod app {
             }
             // The other branches will await/yield when it calls write_packet(chunk)
             // But that does not cover the case when neither buffer is ready to be read from.
+            if !read_ping && !read_pong {
+                warn!("NO BUFFERS TO READ");
+            }
             Mono::delay(1000.micros()).await;
         }
     }
