@@ -21,17 +21,7 @@ static SHARED_DATA: MaybeUninit<embassy_stm32::SharedData> = MaybeUninit::uninit
 #[unsafe(link_section = ".axisram")]
 static mut DMA_BUFFER: [I2sSample; BUFFER_SAMPLES] = [0; BUFFER_SAMPLES];
 
-#[derive(PartialEq)]
-pub enum BufferState {
-    PendingRead,
-    PendingWrite,
-}
-
 bind_interrupts!(struct Irqs {
-    // I dont think I need these
-    //OTG_HS_EP1_OUT => embassy_stm32::usb::InterruptHandler<peripherals::USB_OTG_HS>;
-    //OTG_HS_EP1_IN  => embassy_stm32::usb::InterruptHandler<peripherals::USB_OTG_HS>;
-    //OTG_HS_WKUP    => embassy_stm32::usb::InterruptHandler<peripherals::USB_OTG_HS>;
     DMA1_STREAM0 => embassy_stm32::dma::InterruptHandler<peripherals::DMA1_CH0>;
 });
 
@@ -55,12 +45,7 @@ mod app {
 
     // Shared resources go here
     #[shared]
-    struct Shared {
-        ping: SampleBuffer,
-        pong: SampleBuffer,
-        ping_state: BufferState,
-        pong_state: BufferState,
-    }
+    struct Shared {}
 
     // Local resources go here
     #[local]
@@ -137,12 +122,7 @@ mod app {
         debug!("Monotonic Started");
         write_osc_to_i2s::spawn().unwrap();
         (
-            Shared {
-                ping: [0; BUFFER_SAMPLES],
-                pong: [0; BUFFER_SAMPLES],
-                ping_state: BufferState::PendingWrite,
-                pong_state: BufferState::PendingWrite,
-            },
+            Shared {},
             Local {
                 square_osc: sine_oscillator(MIDDLE_C, SAMPLE_RATE),
                 i2s2,
