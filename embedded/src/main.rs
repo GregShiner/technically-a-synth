@@ -8,13 +8,14 @@ use embedded as _; // global logger + panicking-behavior + memory layout
 
 rtic_monotonics::systick_monotonic!(Mono, 1_000);
 
-#[unsafe(link_section = ".axisram")]
+#[unsafe(link_section = ".ram_d3")]
 static SHARED_DATA: MaybeUninit<embassy_stm32::SharedData> = MaybeUninit::uninit();
 
 type AudioSample = i16;
 const BUFFER_SAMPLES: usize = 256;
 type SampleBuffer = [AudioSample; BUFFER_SAMPLES];
-const SAMPLE_RATE: f64 = 44100.0;
+const SAMPLE_RATE_U: u32 = 44100;
+const SAMPLE_RATE: f64 = SAMPLE_RATE_U as f64;
 const MIDDLE_C: f64 = 261.6256;
 
 #[derive(PartialEq)]
@@ -22,6 +23,14 @@ pub enum BufferState {
     PendingRead,
     PendingWrite,
 }
+
+bind_interrupts!(struct Irqs {
+    // I dont think I need these
+    //OTG_HS_EP1_OUT => embassy_stm32::usb::InterruptHandler<peripherals::USB_OTG_HS>;
+    //OTG_HS_EP1_IN  => embassy_stm32::usb::InterruptHandler<peripherals::USB_OTG_HS>;
+    //OTG_HS_WKUP    => embassy_stm32::usb::InterruptHandler<peripherals::USB_OTG_HS>;
+    DMA1_STREAM0 => embassy_stm32::dma::InterruptHandler<peripherals::DMA1_CH0>;
+});
 
 #[rtic::app(
     device = embassy_stm32,
@@ -34,7 +43,7 @@ mod app {
         signal::{ConstHz, Sine, Square},
     };
     use defmt::{debug, info, warn};
-    use embassy_stm32::{self as hal, rcc};
+    use embassy_stm32::{self as hal, gpio, i2s, rcc, spi, time};
     use fugit::ExtU32;
     use rtic_monotonics::Monotonic;
 
@@ -54,11 +63,10 @@ mod app {
     #[local]
     struct Local {
         square_osc: Sine<ConstHz>,
+        i2s2: i2s::I2S<'static, u32>,
     }
 
-    #[init(local = [
-        dummy: () = ()
-    ])]
+    #[init(local = [dma_buffer: [u32; 512] = [0u32; 512]])]
     fn init(cx: init::Context) -> (Shared, Local) {
         info!("init");
 
@@ -90,6 +98,43 @@ mod app {
         let p = hal::init_primary(config, &SHARED_DATA);
         debug!("HAL Initialized");
 
+        // PB15 SPI2 I2S2_SDO
+        // PB12 SPI2 I2S2_WS
+        // PB10 SPI2 I2S2_CK
+        let spi2 = p.SPI2;
+        let pb15 = p.PB15;
+        let pb12 = p.PB12;
+        let pb10 = p.PB10;
+        let dma1_ch0 = p.DMA1_CH0;
+        let mut i2s_config = i2s::Config::default();
+        // I'm pretty sure this is audio frequency since the default is 48kHz
+        // It would suck if this was bit frequency
+        i2s_config.frequency = time::hz(SAMPLE_RATE_U);
+        // I don't really know whats required for this, but this is the default
+        // Hopefully my clock config can handle this
+        i2s_config.gpio_speed = gpio::Speed::VeryHigh;
+        // The MCU will be the device thats sending
+        i2s_config.mode = i2s::Mode::Master;
+        // PCM5102A in "standard i2s" mode is AKA "Philips" according to one guide I found
+        // https://nodeloop.org/guides/i2s-interface-guide/
+        i2s_config.standard = i2s::Standard::Philips;
+        // The PCM5102A has 32 bit channels and might as well use all 32 of em
+        i2s_config.format = i2s::Format::Data32Channel32;
+        // idrk, this was the default
+        i2s_config.clock_polarity = i2s::ClockPolarity::IdleLow;
+        // The PCM5102A has an onboard clock that it will set based on the bit clock and lrck
+        i2s_config.master_clock = false;
+        let i2s2 = i2s::I2S::new_txonly_nomck(
+            spi2,
+            pb15,
+            pb12,
+            pb10,
+            dma1_ch0,
+            cx.local.dma_buffer,
+            Irqs,
+            i2s_config,
+        );
+
         let mono_driver = Mono::start(cp.SYST, 480_000_000); // 480 MHz System Clock
         debug!("Monotonic Started");
         fill_audio::spawn().unwrap();
@@ -103,6 +148,7 @@ mod app {
             },
             Local {
                 square_osc: sine_oscillator(MIDDLE_C, SAMPLE_RATE),
+                i2s2,
             },
         )
     }
