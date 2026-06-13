@@ -100,11 +100,11 @@ mod app {
 
         // PB15 SPI2 I2S2_SDO
         // PB12 SPI2 I2S2_WS
-        // PB10 SPI2 I2S2_CK
+        // PD3  SPI2 I2S2_CK
         let spi2 = p.SPI2;
-        let pb15 = p.PB15;
-        let pb12 = p.PB12;
-        let pb10 = p.PB10;
+        let i2s2_sdo = p.PB15;
+        let i2s2_ws = p.PB12;
+        let i2s2_ck = p.PD3;
         let dma1_ch0 = p.DMA1_CH0;
         let mut i2s_config = i2s::Config::default();
         // I'm pretty sure this is audio frequency since the default is 48kHz
@@ -126,9 +126,9 @@ mod app {
         i2s_config.master_clock = false;
         let i2s2 = i2s::I2S::new_txonly_nomck(
             spi2,
-            pb15,
-            pb12,
-            pb10,
+            i2s2_sdo,
+            i2s2_ws,
+            i2s2_ck,
             dma1_ch0,
             cx.local.dma_buffer,
             Irqs,
