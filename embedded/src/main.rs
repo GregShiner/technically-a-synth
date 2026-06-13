@@ -8,15 +8,18 @@ use embedded as _; // global logger + panicking-behavior + memory layout
 
 rtic_monotonics::systick_monotonic!(Mono, 1_000);
 
-#[unsafe(link_section = ".ram_d3")]
-static SHARED_DATA: MaybeUninit<embassy_stm32::SharedData> = MaybeUninit::uninit();
-
-type AudioSample = i16;
-const BUFFER_SAMPLES: usize = 256;
+type AudioSample = i32;
+type I2sSample = u32;
+const BUFFER_SAMPLES: usize = 1024;
 type SampleBuffer = [AudioSample; BUFFER_SAMPLES];
-const SAMPLE_RATE_U: u32 = 44100;
+const SAMPLE_RATE_U: u32 = 48000;
 const SAMPLE_RATE: f64 = SAMPLE_RATE_U as f64;
 const MIDDLE_C: f64 = 261.6256;
+
+#[unsafe(link_section = ".axisram")]
+static SHARED_DATA: MaybeUninit<embassy_stm32::SharedData> = MaybeUninit::uninit();
+#[unsafe(link_section = ".axisram")]
+static mut DMA_BUFFER: [I2sSample; BUFFER_SAMPLES] = [0; BUFFER_SAMPLES];
 
 #[derive(PartialEq)]
 pub enum BufferState {
@@ -66,7 +69,7 @@ mod app {
         i2s2: i2s::I2S<'static, u32>,
     }
 
-    #[init(local = [dma_buffer: [u32; 512] = [0u32; 512]])]
+    #[init()]
     fn init(cx: init::Context) -> (Shared, Local) {
         info!("init");
 
@@ -124,21 +127,15 @@ mod app {
         i2s_config.clock_polarity = i2s::ClockPolarity::IdleLow;
         // The PCM5102A has an onboard clock that it will set based on the bit clock and lrck
         i2s_config.master_clock = false;
+        let dma_buf: &'static mut [I2sSample; BUFFER_SAMPLES] =
+            unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUFFER) };
         let i2s2 = i2s::I2S::new_txonly_nomck(
-            spi2,
-            i2s2_sdo,
-            i2s2_ws,
-            i2s2_ck,
-            dma1_ch0,
-            cx.local.dma_buffer,
-            Irqs,
-            i2s_config,
+            spi2, i2s2_sdo, i2s2_ws, i2s2_ck, dma1_ch0, dma_buf, Irqs, i2s_config,
         );
 
         let mono_driver = Mono::start(cp.SYST, 480_000_000); // 480 MHz System Clock
         debug!("Monotonic Started");
-        fill_audio::spawn().unwrap();
-        send_audio::spawn().unwrap();
+        write_osc_to_i2s::spawn().unwrap();
         (
             Shared {
                 ping: [0; BUFFER_SAMPLES],
@@ -162,67 +159,6 @@ mod app {
         }
     }
 
-    #[task(shared = [ping, pong, ping_state, pong_state], priority = 1)]
-    async fn send_audio(mut cx: send_audio::Context) {
-        info!("Sending data!");
-        loop {
-            debug!("Starting send audio loop");
-            let read_ping = cx
-                .shared
-                .ping_state
-                .lock(|s| *s == BufferState::PendingRead);
-            // NOTE: Re soundness: The buffer state can theoretically be changed between the above
-            // line and the following line. However, that will never happen as long as send_audio()
-            // is the only other task that may modify it, and its at the same priority as this task.
-            // In RTIC, only higher priority tasks can preempt.
-            if read_ping {
-                debug!("Reading ping");
-                // TODO: Rewrite this as no copy
-                // This can be accomplished by just copying out the pointer to the array and using
-                // that. But, that can only be done soundly once it's confirmed that the writer will
-                // never write to a buffer while its reading.
-                let mut local_buf = [0i16; BUFFER_SAMPLES];
-                cx.shared.ping.lock(|buf| local_buf.copy_from_slice(buf));
-                let bytes: &[u8; BUFFER_SAMPLES * size_of::<AudioSample>()] =
-                    // SAFETY: The internal representation of the data doesn't really matter as long
-                    // as whatever is reading from USB interprets it correctly. The only thing that
-                    // would matter here is the endianess of the i16s. They should (probably) be
-                    // little-endian but this might be worth double checking at some point.
-                    // If the type of AudioSample changes from i16, this may need to be adjusted.
-                    unsafe { core::mem::transmute(&local_buf) };
-                // TODO: Write to i2s
-                cx.shared
-                    .ping_state
-                    .lock(|s| *s = BufferState::PendingWrite);
-            }
-
-            let read_pong = cx
-                .shared
-                .pong_state
-                .lock(|s| *s == BufferState::PendingRead);
-            // NOTE: Re soundness: ditto
-            if read_pong {
-                debug!("Reading pong");
-                // TODO: Ditto
-                let mut local_buf = [0i16; BUFFER_SAMPLES];
-                cx.shared.pong.lock(|buf| local_buf.copy_from_slice(buf));
-                let bytes: &[u8; BUFFER_SAMPLES * size_of::<AudioSample>()] =
-                    // SAFETY: Ditto
-                    unsafe { core::mem::transmute(&local_buf) };
-                // TODO: Write to i2s
-                cx.shared
-                    .pong_state
-                    .lock(|s| *s = BufferState::PendingWrite);
-            }
-            // The other branches will await/yield when it calls write_packet(chunk)
-            // But that does not cover the case when neither buffer is ready to be read from.
-            if !read_ping && !read_pong {
-                warn!("NO BUFFERS TO READ");
-            }
-            Mono::delay(1000.micros()).await;
-        }
-    }
-
     fn fill_buffer(buf: &mut SampleBuffer, osc: &mut Sine<ConstHz>) {
         fn f64_to_sample(s: f64) -> AudioSample {
             (s * AudioSample::MAX as f64).clamp(AudioSample::MIN as f64, AudioSample::MAX as f64)
@@ -231,38 +167,21 @@ mod app {
         buf.iter_mut().for_each(|s| *s = f64_to_sample(osc.next()));
     }
 
-    #[task(local = [square_osc], shared = [ping, pong, ping_state, pong_state], priority = 1)]
-    async fn fill_audio(mut cx: fill_audio::Context) -> ! {
-        info!("Started fill_audio");
+    #[task(local = [square_osc, i2s2], priority = 1)]
+    async fn write_osc_to_i2s(mut cx: write_osc_to_i2s::Context) -> ! {
+        info!("Starting write osc to i2s");
+        let mut counter = 0u32;
+        cx.local.i2s2.start();
+        debug!("i2s2 Started");
         loop {
-            debug!("Starting fill audio loop");
-            let write_ping = cx
-                .shared
-                .ping_state
-                .lock(|s| *s == BufferState::PendingWrite);
-            // NOTE: Re soundness: ditto
-            if write_ping {
-                debug!("Writting ping");
-                cx.shared
-                    .ping
-                    .lock(|buf| fill_buffer(buf, cx.local.square_osc));
-                cx.shared.ping_state.lock(|s| *s = BufferState::PendingRead);
-            }
-            Mono::delay(1000.micros()).await;
-
-            let write_pong = cx
-                .shared
-                .pong_state
-                .lock(|s| *s == BufferState::PendingWrite);
-            // NOTE: Re soundness: ditto
-            if write_pong {
-                debug!("Writting pong");
-                cx.shared
-                    .pong
-                    .lock(|buf| fill_buffer(buf, cx.local.square_osc));
-                cx.shared.pong_state.lock(|s| *s = BufferState::PendingRead);
-            }
-            Mono::delay(1000.micros()).await;
+            let mut buf = [0; BUFFER_SAMPLES];
+            fill_buffer(&mut buf, cx.local.square_osc);
+            let to_send: &[u32] =
+                unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const u32, buf.len()) };
+            debug!("Filled buffer, {}", counter);
+            cx.local.i2s2.write(to_send);
+            debug!("Sent buffer, {}", counter);
+            counter += 1;
         }
     }
 }
