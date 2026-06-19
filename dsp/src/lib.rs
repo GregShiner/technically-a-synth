@@ -8,7 +8,7 @@ use dasp::{
         bus::{Bus, Output, SignalBus},
     },
 };
-use libm::sqrtf;
+use libm::{cosf, sqrtf};
 use microfft::{Complex32, real::rfft_1024};
 
 const FFT_BUFFER_SIZE: usize = 1024;
@@ -75,8 +75,8 @@ impl<S: Signal<Frame = f64>> FFTAnalyzer<S> {
         // reason that did not work and broke the FFT. Doing it manually seems to be fine.
         // Maybe switch this out in the future for something a little faster.
         (0..FFT_BUFFER_SIZE).for_each(|i| {
-            let hann = 0.5
-                * (1.0 - (2.0 * core::f32::consts::PI * i as f32 / FFT_BUFFER_SIZE as f32).cos());
+            let hann =
+                0.5 * (1.0 - cosf(2.0 * core::f32::consts::PI * i as f32 / FFT_BUFFER_SIZE as f32));
             ordered[i] *= hann;
         });
         *rfft_1024(&mut ordered)

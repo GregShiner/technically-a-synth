@@ -1,5 +1,7 @@
 use core::f64::consts::PI;
 
+use libm::{cos, sin};
+
 #[derive(Default)]
 pub struct BiquadFilter {
     a1: f64,
@@ -28,8 +30,8 @@ impl BiquadFilter {
     pub fn low_pass(cutoff: f64, sample_rate: f64, q: f64) -> Self {
         // https://en.wikipedia.org/wiki/Digital_biquad_filter#Bilinear_transform_examples
         let w0 = 2.0 * PI * cutoff / sample_rate;
-        let alpha = w0.sin() / (2.0 * q);
-        let cos_w0 = w0.cos();
+        let alpha = sin(w0) / (2.0 * q);
+        let cos_w0 = cos(w0);
 
         // Calculate a0 first because everything is normalized by a0
         let a0 = 1.0 + alpha;
@@ -57,8 +59,8 @@ impl BiquadFilter {
     pub fn update_low_pass(&mut self, cutoff: f64, sample_rate: f64, q: f64) {
         // https://en.wikipedia.org/wiki/Digital_biquad_filter#Bilinear_transform_examples
         let w0 = 2.0 * PI * cutoff / sample_rate;
-        let alpha = w0.sin() / (2.0 * q);
-        let cos_w0 = w0.cos();
+        let alpha = sin(w0) / (2.0 * q);
+        let cos_w0 = cos(w0);
 
         // Calculate a0 first because everything is normalized by a0
         let a0 = 1.0 + alpha;

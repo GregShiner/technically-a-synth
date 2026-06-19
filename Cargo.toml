@@ -1,17 +1,18 @@
 [workspace]
 members = [
     "dsp",
+    "embedded",
     "test_interface",
     "vst",
     "vst/xtask",
 ]
 resolver = "2"
 
+[profile.profiling]
+debug = 2
+inherits = "release"
+strip = "none"
+
 [profile.release]
 lto = "thin"
 strip = "symbols"
-
-[profile.profiling]
-inherits = "release"
-debug = true
-strip = "none"
