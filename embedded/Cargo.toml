@@ -38,12 +38,12 @@ fugit = { version = "0.3.9", features = ["defmt"] }
 defmt-test = "0.3"
 
 # cargo build/run
-[profile.dev]
+#[profile.dev]
 # default is opt-level = '0', but that makes very
 # verbose machine code
-opt-level = 's'
+#opt-level = 's'
 # trade compile speed for slightly better optimisations
-codegen-units = 1
+#codegen-units = 1
 
 # cargo build/run --release
 [profile.release]
