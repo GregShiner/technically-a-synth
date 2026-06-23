@@ -1,10 +1,12 @@
 #![no_std]
 
 pub mod biquad;
+pub mod oscillators;
+use crate::oscillators::{ConstHz, LinearPhase, Saw, Sine, Square, Triangle};
 use dasp::{
     Signal,
     signal::{
-        self, ConstHz, Saw, Sine, Square,
+        self,
         bus::{Bus, Output, SignalBus},
     },
 };
@@ -13,41 +15,36 @@ use microfft::{Complex32, real::rfft_1024};
 
 const FFT_BUFFER_SIZE: usize = 1024;
 
-pub struct Oscillator<S: Signal<Frame = f64>> {
-    freq: Option<f64>,
-    sample_rate: Option<f64>,
+pub type AudioSample = f32;
+
+pub struct Oscillator<S: Signal<Frame = AudioSample>> {
     pub bus: Bus<S>,
     pub main_send: Output<S>,
 }
 
-impl<S: Signal<Frame = f64>> Signal for Oscillator<S> {
-    type Frame = f64;
+impl<S: Signal<Frame = AudioSample>> Signal for Oscillator<S> {
+    type Frame = AudioSample;
 
     fn next(&mut self) -> Self::Frame {
         self.main_send.next()
     }
 }
 
-impl<S: Signal<Frame = f64>> Oscillator<S> {
-    pub fn new(freq: Option<f64>, sample_rate: Option<f64>, signal: S) -> Self {
+impl<S: Signal<Frame = AudioSample>> From<S> for Oscillator<S> {
+    fn from(signal: S) -> Self {
         let bus = signal.bus();
         let main_send = bus.send();
-        Self {
-            freq,
-            sample_rate,
-            bus,
-            main_send,
-        }
+        Self { bus, main_send }
     }
 }
 
-pub struct FFTAnalyzer<S: Signal<Frame = f64>> {
+pub struct FFTAnalyzer<S: Signal<Frame = AudioSample>> {
     inner: S,
     fft_buffer: [f32; FFT_BUFFER_SIZE],
     fft_cursor: usize,
 }
 
-impl<S: Signal<Frame = f64>> FFTAnalyzer<S> {
+impl<S: Signal<Frame = AudioSample>> FFTAnalyzer<S> {
     pub fn new(signal: S) -> Self {
         let fft_buffer = [0.0f32; FFT_BUFFER_SIZE];
         let fft_cursor = 0usize;
@@ -83,9 +80,9 @@ impl<S: Signal<Frame = f64>> FFTAnalyzer<S> {
     }
 }
 
-impl<S: Signal<Frame = f64>> Signal for FFTAnalyzer<S> {
-    type Frame = f64;
-    fn next(&mut self) -> f64 {
+impl<S: Signal<Frame = AudioSample>> Signal for FFTAnalyzer<S> {
+    type Frame = AudioSample;
+    fn next(&mut self) -> AudioSample {
         let fft_sample = self.inner.next();
 
         self.fft_buffer[self.fft_cursor] = fft_sample as f32;
@@ -97,55 +94,32 @@ pub fn complex_magnitudes<const N: usize>(complex: [Complex32; N]) -> [f32; N] {
     complex.map(|c| sqrtf(c.re * c.re + c.im * c.im))
 }
 
-impl Oscillator<Square<ConstHz>> {
-    pub fn new_square(freq: f64, sample_rate: f64) -> Self {
-        let bus = signal::rate(sample_rate).const_hz(freq).square().bus();
-        let main_send = bus.send();
-        Self {
-            freq: Some(freq),
-            sample_rate: Some(sample_rate),
-            bus,
-            main_send,
-        }
-    }
+pub fn square_oscillator(
+    freq: AudioSample,
+    sample_rate: AudioSample,
+) -> Square<f32, LinearPhase<f32, ConstHz>> {
+    Square::from_phase(LinearPhase::from_freq(ConstHz::new(freq), sample_rate))
 }
 
-impl Oscillator<Sine<ConstHz>> {
-    pub fn new_sine(freq: f64, sample_rate: f64) -> Self {
-        let bus = signal::rate(sample_rate).const_hz(freq).sine().bus();
-        let main_send = bus.send();
-        Self {
-            freq: Some(freq),
-            sample_rate: Some(sample_rate),
-            bus,
-            main_send,
-        }
-    }
+pub fn sine_oscillator(
+    freq: AudioSample,
+    sample_rate: AudioSample,
+) -> Sine<f32, LinearPhase<f32, ConstHz>> {
+    Sine::from_phase(LinearPhase::from_freq(ConstHz::new(freq), sample_rate))
 }
 
-impl Oscillator<Saw<ConstHz>> {
-    pub fn new_saw(freq: f64, sample_rate: f64) -> Self {
-        let bus = signal::rate(sample_rate).const_hz(freq).saw().bus();
-        let main_send = bus.send();
-        Self {
-            freq: Some(freq),
-            sample_rate: Some(sample_rate),
-            bus,
-            main_send,
-        }
-    }
+pub fn saw_oscillator(
+    freq: AudioSample,
+    sample_rate: AudioSample,
+) -> Saw<f32, LinearPhase<f32, ConstHz>> {
+    Saw::from_phase(LinearPhase::from_freq(ConstHz::new(freq), sample_rate))
 }
 
-pub fn square_oscillator(freq: f64, sample_rate: f64) -> Square<ConstHz> {
-    signal::rate(sample_rate).const_hz(freq).square()
-}
-
-pub fn sine_oscillator(freq: f64, sample_rate: f64) -> Sine<ConstHz> {
-    signal::rate(sample_rate).const_hz(freq).sine()
-}
-
-pub fn saw_oscillator(freq: f64, sample_rate: f64) -> Saw<ConstHz> {
-    signal::rate(sample_rate).const_hz(freq).saw()
+pub fn triangle_oscillator(
+    freq: AudioSample,
+    sample_rate: AudioSample,
+) -> Triangle<f32, LinearPhase<f32, ConstHz>> {
+    Triangle::from_phase(LinearPhase::from_freq(ConstHz::new(freq), sample_rate))
 }
 
 // TODO: Custom triangle wave oscilator
