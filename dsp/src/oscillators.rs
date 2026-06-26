@@ -24,7 +24,7 @@ impl Signal for ConstHz {
 
 pub struct LinearPhase<F: Frame, Hz: Signal<Frame = F>> {
     phase: F,
-    step_size: f32,
+    sample_rate: f32,
     freq: Hz,
 }
 
@@ -32,7 +32,7 @@ impl<Hz: Signal<Frame = f32>> LinearPhase<f32, Hz> {
     pub fn from_freq(freq: Hz, sample_rate: f32) -> Self {
         Self {
             phase: 0.0,
-            step_size: 1.0 / sample_rate,
+            sample_rate,
             freq,
         }
     }
@@ -48,7 +48,8 @@ impl<Hz: Signal<Frame = f32>> Signal for LinearPhase<f32, Hz> {
 
     fn next(&mut self) -> Self::Frame {
         let phase = self.phase;
-        self.phase = (self.phase + self.step_size) % 1.0f32;
+        let freq = self.freq.next();
+        self.phase = (self.phase + (freq / self.sample_rate)) % 1.0f32;
         phase
     }
 }
