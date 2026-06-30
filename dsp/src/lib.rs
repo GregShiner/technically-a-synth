@@ -121,5 +121,3 @@ pub fn triangle_oscillator(
 ) -> Triangle<f32, LinearPhase<f32, ConstHz>> {
     Triangle::from_phase(LinearPhase::from_freq(ConstHz::new(freq), sample_rate))
 }
-
-// TODO: Custom triangle wave oscilator
