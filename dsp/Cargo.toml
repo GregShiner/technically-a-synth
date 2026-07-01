@@ -7,3 +7,4 @@ edition = "2024"
 dasp = { version = "0.11.0", default-features = false, features = ["signal", "window", "signal-bus"] }
 libm = "0.2.16"
 microfft = "0.6.0"
+paste = "1.0.15"

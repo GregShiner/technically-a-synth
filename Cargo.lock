@@ -1316,6 +1316,7 @@ dependencies = [
  "dasp",
  "libm",
  "microfft",
+ "paste",
 ]
 
 [[package]]

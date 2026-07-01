@@ -1,11 +1,10 @@
 //! Grossly, incomprehensibly generic oscillators
 use core::f32::consts::PI;
 
-use dasp::{
-    Frame, Signal,
-    signal::bus::{Bus, Output, SignalBus},
-};
+use dasp::Frame;
 use libm::sinf;
+
+use crate::{Module, generate_process_enum};
 
 pub struct ConstHz {
     freq: f32,
@@ -17,26 +16,22 @@ impl ConstHz {
     }
 }
 
-impl Signal for ConstHz {
-    type Frame = f32;
-
-    fn next(&mut self) -> Self::Frame {
+impl Module<(), f32> for ConstHz {
+    fn process(&mut self, _input: ()) -> f32 {
         self.freq
     }
 }
 
-pub struct LinearPhase<F: Frame, Hz: Signal<Frame = F>> {
+pub struct LinearPhase<F: Frame> {
     phase: F,
     sample_rate: f32,
-    freq: Hz,
 }
 
-impl<Hz: Signal<Frame = f32>> LinearPhase<f32, Hz> {
-    pub fn from_freq(freq: Hz, sample_rate: f32) -> Self {
+impl LinearPhase<f32> {
+    pub fn from_sample_rate(sample_rate: f32) -> Self {
         Self {
             phase: 0.0,
             sample_rate,
-            freq,
         }
     }
 
@@ -46,133 +41,46 @@ impl<Hz: Signal<Frame = f32>> LinearPhase<f32, Hz> {
 }
 
 // TODO: Make this more generic maybe?
-impl<Hz: Signal<Frame = f32>> Signal for LinearPhase<f32, Hz> {
-    type Frame = f32;
-
-    fn next(&mut self) -> Self::Frame {
+impl Module<f32, f32> for LinearPhase<f32> {
+    fn process(&mut self, freq: f32) -> f32 {
         let phase = self.phase;
-        let freq = self.freq.next();
         self.phase = (self.phase + (freq / self.sample_rate)) % 1.0f32;
         phase
     }
 }
 
-pub struct Square<F: Frame, P: Signal<Frame = F>> {
-    phase: P,
-}
-
-impl<F: Frame, P: Signal<Frame = F>> Square<F, P> {
-    pub fn from_phase(phase: P) -> Self {
-        Self { phase }
-    }
-}
-
-impl<P: Signal<Frame = f32>> Signal for Square<f32, P> {
-    type Frame = f32;
-
-    fn next(&mut self) -> f32 {
-        let phase = self.phase.next();
+pub struct Square;
+impl Module<f32, f32> for Square {
+    fn process(&mut self, phase: f32) -> f32 {
         if phase >= 0.5 { 1.0 } else { 0.0 }
     }
 }
 
-pub struct Saw<F: Frame, P: Signal<Frame = F>> {
-    phase: P,
-}
-
-impl<F: Frame, P: Signal<Frame = F>> Saw<F, P> {
-    pub fn from_phase(phase: P) -> Self {
-        Self { phase }
-    }
-}
-
-impl<P: Signal<Frame = f32>> Signal for Saw<f32, P> {
-    type Frame = f32;
-
-    fn next(&mut self) -> f32 {
-        let phase = self.phase.next();
+pub struct Saw;
+impl Module<f32, f32> for Saw {
+    fn process(&mut self, phase: f32) -> f32 {
+        // Phase goes from 0->1, so double and shift down by 1
         (2.0 * phase) - 1.0
     }
 }
 
 // phase += (1/sample_rate) % 1
 // sin(freq*2*pi*phase)
-pub struct Sine<F: Frame, P: Signal<Frame = F>> {
-    phase: P,
-}
-
-impl<F: Frame, P: Signal<Frame = F>> Sine<F, P> {
-    pub fn from_phase(phase: P) -> Self {
-        Self { phase }
-    }
-}
-
-impl<P: Signal<Frame = f32>> Signal for Sine<f32, P> {
-    type Frame = f32;
-
-    fn next(&mut self) -> f32 {
-        let phase = self.phase.next();
+pub struct Sine;
+impl Module<f32, f32> for Sine {
+    fn process(&mut self, phase: f32) -> f32 {
         // TODO: Figure out which one's faster
         //(2.0 * PI * phase).sin()
         sinf(2.0 * PI * phase)
     }
 }
 
-pub struct Triangle<F: Frame, P: Signal<Frame = F>> {
-    phase: P,
-}
-
-impl<F: Frame, P: Signal<Frame = F>> Triangle<F, P> {
-    pub fn from_phase(phase: P) -> Self {
-        Self { phase }
-    }
-}
-
-impl<P: Signal<Frame = f32>> Signal for Triangle<f32, P> {
-    type Frame = f32;
-
-    fn next(&mut self) -> f32 {
-        let phase = self.phase.next();
+pub struct Triangle;
+impl Module<f32, f32> for Triangle {
+    fn process(&mut self, phase: f32) -> f32 {
+        // TODO: I think this math is right, but find out why
         (4.0 * (phase - 0.5).abs()) - 1.0
     }
 }
 
-pub struct Oscillator<F: Frame, S: Signal<Frame = F>> {
-    pub bus: Bus<S>,
-    pub main_send: Output<S>,
-}
-
-impl<F: Frame, S: Signal<Frame = F>> Signal for Oscillator<F, S> {
-    type Frame = F;
-
-    fn next(&mut self) -> Self::Frame {
-        self.main_send.next()
-    }
-}
-
-impl<F: Frame, S: Signal<Frame = F>> From<S> for Oscillator<F, S> {
-    fn from(signal: S) -> Self {
-        let bus = signal.bus();
-        let main_send = bus.send();
-        Self { bus, main_send }
-    }
-}
-
-pub fn square_oscillator(freq: f32, sample_rate: f32) -> Square<f32, LinearPhase<f32, ConstHz>> {
-    Square::from_phase(LinearPhase::from_freq(ConstHz::new(freq), sample_rate))
-}
-
-pub fn sine_oscillator(freq: f32, sample_rate: f32) -> Sine<f32, LinearPhase<f32, ConstHz>> {
-    Sine::from_phase(LinearPhase::from_freq(ConstHz::new(freq), sample_rate))
-}
-
-pub fn saw_oscillator(freq: f32, sample_rate: f32) -> Saw<f32, LinearPhase<f32, ConstHz>> {
-    Saw::from_phase(LinearPhase::from_freq(ConstHz::new(freq), sample_rate))
-}
-
-pub fn triangle_oscillator(
-    freq: f32,
-    sample_rate: f32,
-) -> Triangle<f32, LinearPhase<f32, ConstHz>> {
-    Triangle::from_phase(LinearPhase::from_freq(ConstHz::new(freq), sample_rate))
-}
+generate_process_enum!(Oscillator, f32, f32, (Square, Sine, Saw, Triangle));
