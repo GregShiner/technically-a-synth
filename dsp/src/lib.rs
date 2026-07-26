@@ -1,30 +1,50 @@
 #![no_std]
+#![feature(generic_const_exprs)]
 
 pub mod biquad;
 pub mod fft;
+pub mod graph;
 pub mod oscillators;
 
+use heapless::{Vec, index_map::FnvIndexMap, index_set::FnvIndexSet};
 pub use oscillators::*;
+
+const MAX_NODE_INPUTS: usize = 3;
+const MAX_NODE_OUTPUTS: usize = 2;
+const MAX_NODE_SCRATCH_BUFFERS: usize = 1;
+
+pub type AudioSample = f32;
+pub type AudioBuffer<const BUF_SIZE: usize> = [AudioSample; BUF_SIZE];
+pub type BigFuckinBuffer<const BUF_SIZE: usize, const NUM_BUFS: usize> =
+    [AudioBuffer<BUF_SIZE>; NUM_BUFS];
 
 /// Represents a DSP module that inputs I, and outputs O
 /// I and O represent the per-sample IO types.
-pub trait Module<I, O> {
-    fn process(&mut self, input: I) -> O;
+pub trait Module {
+    const INPUTS: usize;
+    const OUTPUTS: usize;
+    const SCRATCH_BUFFERS: usize;
+
+    fn process(
+        &mut self,
+        input_buffers: &[&[f32]],
+        output_buffers: &mut [&mut [f32]],
+        scratch_buffers: &mut [&mut [f32]],
+    ) -> ();
 }
 
-/// This macro has 4 parameters:
-/// generate_process_enum!(EnumName, InputType, OutputType, (Module1, Module2, Module3))
+/// This macro has 2 parameters:
+/// generate_process_enum!(EnumName, (Module1, Module2, Module3))
 ///
 /// This generates an enum with the name specified that wraps a collection of modules.
-/// Each module must implement the Module<I, O> trait for a concrete input and output type I, and O.
-/// You must also match the I and O types you are implementing this for with InputType and OutputType
+/// Each module must implement the Module trait.
 ///
 /// The macro implements a function `get_process` on the enum it creates.
 /// This function returns a function pointer to the `process`
 /// method from each Module's `Module` trait implementation.
 ///
-/// So, if Module<f32, f32> is implemented for each module in your list, you can call:
-/// generate_process_enum!(ModuleEnum, f32, f32, (Module1, Module2));
+/// So, if Module is implemented for each module in your list, you can call:
+/// generate_process_enum!(ModuleEnum, (Module1, Module2));
 /// This will create an enum called `ModuleEnum` with 2 variants:
 /// pub enum ModuleEnum {
 ///     Module1(Module1),
@@ -35,9 +55,6 @@ pub trait Module<I, O> {
 /// You can then call ModuleEnum::get_process(&self) on an instance of ModuleEnum
 /// to get that variant's process function.
 ///
-/// If your modules have multiple common implementations of Module with different I, O types, you
-/// can use this macro multiple times to generate multiple enums for the different I, O types.
-///
 /// Technical Detail:
 /// Rust doesn't let you get a function pointer to a trait method, so this macro generates a small
 /// wrapper function that destructures the enum and calls the enclosed function.
@@ -47,7 +64,7 @@ pub trait Module<I, O> {
 /// really an necessary, or even effective, optimization. I just really felt like writting a macro.
 #[macro_export]
 macro_rules! generate_process_enum {
-    ($enum:ident, $input_t:ty, $output_t:ty, ($($type:ident),+)) => { use paste::paste; paste! {
+    ($enum:ident, ($($type:ident),+)) => { use paste::paste; paste! {
         // Generates an enum with the Module types specified
         // The variant name will be the same as the enclosed type
         pub enum $enum {
@@ -59,17 +76,23 @@ macro_rules! generate_process_enum {
         impl $enum {
             // For each type, create a function that calls process for the enclosed type
             $(
-            fn [<process_ $type:lower>](enum_input: &mut $enum, input: $input_t) -> $output_t {
+            fn [<process_ $type:lower>](
+                enum_input: &mut $enum,
+                input_buffers: &[&[f32]],
+                output_buffers: &mut [&mut [f32]],
+                scratch_buffers: &mut [&mut [f32]]
+            ) {
                  // TODO: debug_assert! that the varient matches then replace
                  // unreachable! with unreachable_unchecked!
                  match enum_input {
-                     $enum::$type(inner) => inner.process(input),
+                     $enum::$type(inner) => inner.process(input_buffers, output_buffers, scratch_buffers),
                      _ => unreachable!(),
                  }
             }
             )+
 
-            pub fn get_process(&self) -> for<'a> fn(&'a mut $enum, $input_t) -> $output_t {
+            // holy crap this is ugly
+            pub fn get_process(&self) -> for<'a, 'b, 'c, 'd, 'e, 'f, 'g> fn(&'a mut Oscillator, &'b [&'c [f32]], &'d mut [&'e mut [f32]], &'f mut [&'g mut [f32]]) {
                 match self {
                     $(
                     $enum::$type(_) => Self::[<process_ $type:lower>],

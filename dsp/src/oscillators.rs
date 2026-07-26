@@ -6,6 +6,7 @@ use libm::sinf;
 
 use crate::{Module, generate_process_enum};
 
+#[derive(Clone)]
 pub struct ConstHz {
     freq: f32,
 }
@@ -16,18 +17,32 @@ impl ConstHz {
     }
 }
 
-impl Module<(), f32> for ConstHz {
-    fn process(&mut self, _input: ()) -> f32 {
-        self.freq
+impl Module for ConstHz {
+    const INPUTS: usize = 0;
+    const OUTPUTS: usize = 1;
+    const SCRATCH_BUFFERS: usize = 0;
+
+    fn process(
+        &mut self,
+        _input_buffers: &[&[f32]],
+        output_buffers: &mut [&mut [f32]],
+        _scratch_buffers: &mut [&mut [f32]],
+    ) -> () {
+        output_buffers[0].fill(self.freq);
     }
 }
 
-pub struct LinearPhase<F: Frame> {
-    phase: F,
+#[derive(Clone)]
+pub struct LinearPhase {
+    phase: f32,
     sample_rate: f32,
 }
 
-impl LinearPhase<f32> {
+impl LinearPhase {
+    const INPUTS: usize = 1;
+    const OUTPUTS: usize = 1;
+    const SCRATCH_BUFFERS: usize = 0;
+
     pub fn from_sample_rate(sample_rate: f32) -> Self {
         Self {
             phase: 0.0,
@@ -40,47 +55,112 @@ impl LinearPhase<f32> {
     }
 }
 
-// TODO: Make this more generic maybe?
-impl Module<f32, f32> for LinearPhase<f32> {
-    fn process(&mut self, freq: f32) -> f32 {
-        let phase = self.phase;
-        self.phase = (self.phase + (freq / self.sample_rate)) % 1.0f32;
-        phase
+impl Module for LinearPhase {
+    const INPUTS: usize = 1;
+    const OUTPUTS: usize = 1;
+    const SCRATCH_BUFFERS: usize = 0;
+
+    fn process(
+        &mut self,
+        input_buffers: &[&[f32]],
+        output_buffers: &mut [&mut [f32]],
+        _scratch_buffers: &mut [&mut [f32]],
+    ) -> () {
+        input_buffers[0]
+            .iter()
+            .zip(output_buffers[0].iter_mut())
+            .map(|(freq, phase)| {
+                let old_phase = self.phase;
+                self.phase = (self.phase + (freq / self.sample_rate)) % 1.0f32;
+                *phase = old_phase;
+            });
     }
 }
 
+#[derive(Clone)]
 pub struct Square;
-impl Module<f32, f32> for Square {
-    fn process(&mut self, phase: f32) -> f32 {
-        if phase >= 0.5 { 1.0 } else { 0.0 }
+impl Module for Square {
+    const INPUTS: usize = 1;
+    const OUTPUTS: usize = 1;
+    const SCRATCH_BUFFERS: usize = 0;
+
+    fn process(
+        &mut self,
+        input_buffers: &[&[f32]],
+        output_buffers: &mut [&mut [f32]],
+        _scratch_buffers: &mut [&mut [f32]],
+    ) -> () {
+        input_buffers[0]
+            .iter()
+            .zip(output_buffers[0].iter_mut())
+            .map(|(phase, output)| *output = if *phase >= 0.5 { 1.0 } else { 0.0 });
     }
 }
 
+#[derive(Clone)]
 pub struct Saw;
-impl Module<f32, f32> for Saw {
-    fn process(&mut self, phase: f32) -> f32 {
+impl Module for Saw {
+    const INPUTS: usize = 1;
+    const OUTPUTS: usize = 1;
+    const SCRATCH_BUFFERS: usize = 0;
+
+    fn process(
+        &mut self,
+        input_buffers: &[&[f32]],
+        output_buffers: &mut [&mut [f32]],
+        _scratch_buffers: &mut [&mut [f32]],
+    ) -> () {
         // Phase goes from 0->1, so double and shift down by 1
-        (2.0 * phase) - 1.0
+        input_buffers[0]
+            .iter()
+            .zip(output_buffers[0].iter_mut())
+            .map(|(phase, output)| *output = (2.0 * phase) - 1.0);
     }
 }
 
 // phase += (1/sample_rate) % 1
 // sin(freq*2*pi*phase)
+#[derive(Clone)]
 pub struct Sine;
-impl Module<f32, f32> for Sine {
-    fn process(&mut self, phase: f32) -> f32 {
+impl Module for Sine {
+    const INPUTS: usize = 1;
+    const OUTPUTS: usize = 1;
+    const SCRATCH_BUFFERS: usize = 0;
+
+    fn process(
+        &mut self,
+        input_buffers: &[&[f32]],
+        output_buffers: &mut [&mut [f32]],
+        _scratch_buffers: &mut [&mut [f32]],
+    ) -> () {
         // TODO: Figure out which one's faster
         //(2.0 * PI * phase).sin()
-        sinf(2.0 * PI * phase)
+        input_buffers[0]
+            .iter()
+            .zip(output_buffers[0].iter_mut())
+            .map(|(phase, output)| *output = sinf(2.0 * PI * phase));
     }
 }
 
+#[derive(Clone)]
 pub struct Triangle;
-impl Module<f32, f32> for Triangle {
-    fn process(&mut self, phase: f32) -> f32 {
+impl Module for Triangle {
+    const INPUTS: usize = 1;
+    const OUTPUTS: usize = 1;
+    const SCRATCH_BUFFERS: usize = 0;
+
+    fn process(
+        &mut self,
+        input_buffers: &[&[f32]],
+        output_buffers: &mut [&mut [f32]],
+        _scratch_buffers: &mut [&mut [f32]],
+    ) -> () {
         // TODO: I think this math is right, but find out why
-        (4.0 * (phase - 0.5).abs()) - 1.0
+        input_buffers[0]
+            .iter()
+            .zip(output_buffers[0].iter_mut())
+            .map(|(phase, output)| *output = (4.0 * (phase - 0.5).abs()) - 1.0);
     }
 }
 
-generate_process_enum!(Oscillator, f32, f32, (Square, Sine, Saw, Triangle));
+generate_process_enum!(Oscillator, (Square, Sine, Saw, Triangle));
