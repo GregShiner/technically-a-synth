@@ -1,12 +1,10 @@
 #![no_std]
-#![feature(generic_const_exprs)]
 
 pub mod biquad;
 pub mod fft;
 pub mod graph;
 pub mod oscillators;
 
-use heapless::{Vec, index_map::FnvIndexMap, index_set::FnvIndexSet};
 pub use oscillators::*;
 
 const MAX_NODE_INPUTS: usize = 3;

@@ -25,14 +25,16 @@ struct Node {
     assigned_scratch_buffers: Vec<usize, MAX_NODE_SCRATCH_BUFFERS>, // Indices of scratch puffers
 }
 
-struct RoutingGraph<const N: usize, const M: usize> {
+struct RoutingGraph<const N: usize> {
     // TODO: Maybe find a reasonable way to precalculate and store the routing without needing to
     // scan the entire edge_list every time.
     nodes: Vec<Node, N>,
+    left_output_buffer: usize,
+    right_output_buffer: usize,
 }
 
-impl<const N: usize, const M: usize> RoutingGraph<N, M> {
-    fn next(&self) -> f32 {
+impl<const N: usize> RoutingGraph<N> {
+    fn process(&mut self) -> () {
         todo!()
     }
 
@@ -40,13 +42,7 @@ impl<const N: usize, const M: usize> RoutingGraph<N, M> {
     /// Reassigns the input_nodes of the nodes after sorting so the connections stay in tact after
     /// reordering the array.
     /// Returns Err(()) if graph contains a cycle
-    fn topological_sort(&mut self) -> Result<(), ()>
-    // I dont totally understand what this means but the compiler told me to put it here
-    // I'm pretty sure this says given some N, an array of units with the size N * N is Sized.
-    // I'm pretty sure the purpose of this is to ensure that N * N remains a usize.
-    where
-        [(); N * N]: Sized,
-    {
+    fn topological_sort(&mut self) -> Result<(), ()> {
         // Stores copies of the Nodes in a sorted order
         let mut sorted: Vec<Node, N> = Vec::new();
         // Index of this array matches the index of the original array, the value in the index of
@@ -87,7 +83,7 @@ impl<const N: usize, const M: usize> RoutingGraph<N, M> {
             debug_assert!(!sorted.is_full());
             unsafe { sorted.push_unchecked(self.nodes[from].clone()) };
             let outgoing_connections: Vec<usize, N> =
-                edges.get(&from).unwrap().iter().map(|to| *to).collect();
+                edges.get(&from).unwrap().iter().copied().collect();
             for to in outgoing_connections {
                 // Remove the edge
                 let to_set = edges.get_mut(&from).unwrap();
@@ -115,6 +111,6 @@ impl<const N: usize, const M: usize> RoutingGraph<N, M> {
             }
         }
         self.nodes = sorted;
-        return Ok(());
+        Ok(())
     }
 }

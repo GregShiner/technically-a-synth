@@ -51,7 +51,7 @@ impl<S: Signal<Frame = f32>> Signal for FFTAnalyzer<S> {
     fn next(&mut self) -> f32 {
         let fft_sample = self.inner.next();
 
-        self.fft_buffer[self.fft_cursor] = fft_sample as f32;
+        self.fft_buffer[self.fft_cursor] = fft_sample;
         self.fft_cursor = (self.fft_cursor + 1) % FFT_BUFFER_SIZE;
         fft_sample
     }
